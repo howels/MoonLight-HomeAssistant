@@ -1,0 +1,17 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "default": "mdi:lan-connect",
+        "state": {
+          "off": "mdi:lan-disconnect"
+        }
+      }
+    },
+    "light": {
+      "light": {
+        "default": "mdi:led-strip-variant"
+      }
+    }
+  }
+}

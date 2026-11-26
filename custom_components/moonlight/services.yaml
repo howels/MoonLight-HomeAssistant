@@ -1,0 +1,43 @@
+set_control:
+  name: Set a control
+  description: Set one control on a MoonLight device. The value is JSON, so 40 is a number, true is a bool, and "Rainbow" is text.
+  target:
+    device:
+      integration: moonlight
+  fields:
+    module:
+      name: Module
+      description: The module name, as the card is titled. Pulse, Drivers, WiFi.
+      required: true
+      example: Pulse
+      selector:
+        text:
+    control:
+      name: Control
+      description: The control name, as the card labels it. speed, brightness, deviceName.
+      required: true
+      example: speed
+      selector:
+        text:
+    value:
+      name: Value
+      description: 'JSON. A number is 40. A bool is true or false. Text is "Rainbow".'
+      required: true
+      example: "40"
+      selector:
+        text:
+
+apply_look:
+  name: Apply a look
+  description: Apply one effect look by name. A look is a preset whose only role is effects.
+  target:
+    device:
+      integration: moonlight
+  fields:
+    look:
+      name: Look
+      description: The look's name, as the Control card lists it.
+      required: true
+      example: Rainbow
+      selector:
+        text:

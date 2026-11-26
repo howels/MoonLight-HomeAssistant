@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Add a MoonLight device",
-        "description": "The device's address. A board serves on port 80, MoonLight running on a computer on 8080.",
+        "description": "The device's address. A board serves on port 80. MoonLight running on a computer serves on port 8080.",
         "data": {
           "host": "Host",
           "port": "Port"
@@ -13,14 +13,99 @@
       "zeroconf_confirm": {
         "title": "MoonLight device found",
         "description": "Add {name} to Home Assistant?"
+      },
+      "reconfigure": {
+        "title": "Update the address",
+        "description": "The device's address. The MAC must be the device this entry already is.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
       }
     },
     "error": {
-      "cannot_connect": "The device did not answer as MoonLight. Check the address and port."
+      "cannot_connect": "MoonLight did not answer. Check the host and port, and that the device is on.",
+      "invalid_response": "The host answered, but not with MoonLight's API. A board uses port 80. A computer uses port 8080.",
+      "invalid_host": "Enter a host name or an address, or an http:// URL with no path.",
+      "invalid_port": "The port must be from 1 to 65535.",
+      "tls_unsupported": "MoonLight serves HTTP on the local network. An https:// address cannot be used.",
+      "unknown": "MoonLight could not be read. The log has the reason."
     },
     "abort": {
-      "already_configured": "This device is already added; its address is updated.",
-      "cannot_connect": "The device did not answer as MoonLight."
+      "already_configured": "This device is already added. Its address is updated.",
+      "cannot_connect": "MoonLight did not answer.",
+      "invalid_response": "The host answered, but not with MoonLight's API.",
+      "invalid_host": "The discovered address is not usable.",
+      "invalid_port": "The discovered port is not usable.",
+      "tls_unsupported": "MoonLight serves HTTP on the local network.",
+      "unknown": "MoonLight could not be read.",
+      "wrong_device": "That address is a different MoonLight device. Add it as a new device.",
+      "reconfigure_successful": "The address is updated."
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "MoonLight refused {module} {control}: {error}."
+    },
+    "not_connected": {
+      "message": "MoonLight is not connected, so the change was not sent. {error}"
+    },
+    "unknown_look": {
+      "message": "MoonLight has no effect look named {name}. {error}"
+    },
+    "no_device": {
+      "message": "Choose a MoonLight device."
+    },
+    "entry_not_loaded": {
+      "message": "{title} is not loaded."
+    },
+    "value_not_json": {
+      "message": "The value must be JSON. {value} is not: {detail}."
+    },
+    "value_not_scalar": {
+      "message": "The value must be a JSON number, bool or string."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      }
+    },
+    "light": {
+      "light": {
+        "name": "Light"
+      }
+    }
+  },
+  "services": {
+    "set_control": {
+      "name": "Set a control",
+      "description": "Set one control. The value is JSON: 40, true, or \"Rainbow\".",
+      "fields": {
+        "module": {
+          "name": "Module",
+          "description": "The module name, as the card is titled."
+        },
+        "control": {
+          "name": "Control",
+          "description": "The control name, as the card labels it."
+        },
+        "value": {
+          "name": "Value",
+          "description": "JSON. A number is 40. A bool is true or false. Text is \"Rainbow\"."
+        }
+      }
+    },
+    "apply_look": {
+      "name": "Apply a look",
+      "description": "Apply one effect look by name.",
+      "fields": {
+        "look": {
+          "name": "Look",
+          "description": "The look's name, as the Control card lists it."
+        }
+      }
     }
   }
 }
