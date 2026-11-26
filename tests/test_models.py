@@ -55,6 +55,7 @@ def test_only_effect_presets_are_looks() -> None:
     assert [look.name for look in looks] == ["Rainbow"]
     assert looks[0].active is True
     assert looks[0].row == "1"
+    assert looks[0].slot == 1
 
 
 def test_password_and_list_are_not_entities() -> None:

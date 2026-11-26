@@ -19,6 +19,9 @@ REQUEST_TIMEOUT: Final = 10
 # The socket pushes a patch about once a second. A quiet minute means the connection is dead.
 SOCKET_STALE: Final = timedelta(seconds=60)
 
+# How long to wait for the first frame. An older firmware sends the tree on connect. A current one sends the WLED shim until the client subscribes, which is well inside this.
+SOCKET_GREET_SECONDS: Final = 2.0
+
 # Reconnect delay doubles from this floor up to the ceiling.
 RETRY_MIN_SECONDS: Final = 1.0
 RETRY_MAX_SECONDS: Final = 30.0

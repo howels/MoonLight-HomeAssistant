@@ -6,7 +6,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from .conftest import HOST, MAC, PORT, mock_device
+from .conftest import HOST, MAC, PORT, mock_device, state
 
 
 async def _setup(hass, aioclient_mock):
@@ -32,6 +32,32 @@ async def test_setup_subscribes_and_orders_devices_like_the_nav(hass, aioclient_
         assert device is not None
         assert device.parent_device_id == endpoint.id
     assert registry.async_get_child_device_by_identifier((DOMAIN, f"{MAC}_Pulse"), entry.entry_id) is None
+
+
+async def test_older_firmware_keeps_commands_on_http(hass, aioclient_mock, moonlight_ws) -> None:
+    """A tree that arrives before any subscription is older firmware. A control is an HTTP post."""
+    moonlight_ws.feed(state())
+    entry = await _setup(hass, aioclient_mock)
+    assert not any(isinstance(item, dict) and "subscribe" in item for item in moonlight_ws.sent)
+    assert entry.runtime_data._commands_on_socket is False
+    aioclient_mock.post(f"http://{HOST}:{PORT}/api/control", json={"ok": True})
+    device = dr.async_get(hass).async_get_child_device_by_identifier(
+        (DOMAIN, f"{MAC}_Effects"), entry.entry_id
+    )
+    assert device is not None
+    await hass.services.async_call(
+        DOMAIN,
+        "set_control",
+        {"device_id": device.id, "module": "Pulse", "control": "speed", "value": "40"},
+        blocking=True,
+    )
+    assert {"module": "Pulse", "control": "speed", "value": 40} not in moonlight_ws.sent
+    posted = [
+        call[2]
+        for call in aioclient_mock.mock_calls
+        if str(call[0]).lower() == "post" and str(call[1]).endswith("/api/control")
+    ]
+    assert {"module": "Pulse", "control": "speed", "value": 40} in posted
 
 
 async def test_setup_is_not_ready_when_the_host_is_down(hass, aioclient_mock) -> None:

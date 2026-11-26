@@ -22,6 +22,15 @@ class FakeWebSocket:
         """Record a frame the integration sent."""
         self.sent.append(data)
 
+    async def receive(self, timeout: float | None = None) -> WSMessage:
+        """The first frame, or a timeout when the device has not spoken yet."""
+        if self._messages.empty():
+            raise TimeoutError
+        message = self._messages.get_nowait()
+        if message is None:
+            raise StopAsyncIteration
+        return message
+
     def feed(self, payload: dict[str, Any]) -> None:
         """Queue one text frame, as the device would push it."""
         self._messages.put_nowait(WSMessage(WSMsgType.TEXT, json.dumps(payload), None))

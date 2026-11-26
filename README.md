@@ -41,11 +41,11 @@ The WLED integration also discovers a MoonLight board, through `_wled._tcp`, and
 
 ## How it stays in step
 
-Setup reads `GET /api/system` and `GET /api/state`. The integration then opens `/ws`, sends `{"subscribe":["*"]}`, and applies the patches the device pushes. The web interface subscribes to the page it is showing. Home Assistant keeps every page, because every card can be an entity at once.
+Setup reads `GET /api/system` and `GET /api/state`. The integration then opens `/ws`. Current firmware is sent `{"subscribe":["*"]}` and then the patches. Older firmware sends the tree on connect, without that subscription. Home Assistant keeps every page, because every card can be an entity at once.
 
 A dropped socket marks the entities unavailable and reconnects. The delay doubles from 1 second to 30 seconds. The Connected sensor reads off while the socket is down, and it stays available so the off state is visible.
 
-A change from Home Assistant is sent on the WebSocket when it is open. The same checks the device makes are applied first, and the phrases match `POST /api/control`: `value out of range`, `value malformed`, `control is read-only`. When the socket cannot take the write, the change is repeated over HTTP, which is where a refusal the local check cannot see comes back.
+On current firmware a change is sent on the WebSocket when it is open. Older firmware ignores that frame, so the change goes over HTTP. The same checks the device makes are applied first, and the phrases match `POST /api/control`: `value out of range`, `value malformed`, `control is read-only`. When the socket cannot take the write, the change is repeated over HTTP, which is where a refusal the local check cannot see comes back.
 
 ## Errors
 

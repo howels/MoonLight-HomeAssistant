@@ -33,6 +33,7 @@ from .const import (
     PRESET_MODULE,
     RETRY_MAX_SECONDS,
     RETRY_MIN_SECONDS,
+    SOCKET_GREET_SECONDS,
 )
 from .exceptions import (
     MoonLightCommandError,
@@ -79,6 +80,8 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self._task: asyncio.Task[None] | None = None
         self._retry_delay = RETRY_MIN_SECONDS
         self.endpoint_device_id: str | None = None
+        # Current firmware applies {"module","control","value"} on the socket. Older firmware ignores that frame and applies {"ps": slot} instead.
+        self._commands_on_socket = False
 
     async def _async_update_data(self) -> MoonLightData:
         """Read identity and the tree. A failure here is retried by Home Assistant."""
@@ -159,10 +162,20 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         look = next((item for item in self.data.looks if item.name == name), None)
         if look is None:
             raise MoonLightCommandError(f"no look named {name}")
-        await self.client.async_apply_list_row(PRESET_MODULE, PRESET_CONTROL, look.row)
-        self.data.looks = tuple(Look(item.name, item.row, item.name == name) for item in self.data.looks)
+        if self._commands_on_socket:
+            await self.client.async_apply_list_row(PRESET_MODULE, PRESET_CONTROL, look.row)
+        elif look.slot > 0 and await self._async_send_json({"ps": look.slot}):
+            pass
+        else:
+            await self.client.async_apply_list_row(PRESET_MODULE, PRESET_CONTROL, look.row)
+        self.data.looks = tuple(
+            Look(item.name, item.row, item.name == name, item.slot) for item in self.data.looks
+        )
         self.async_set_updated_data(self.data)
-        await self._async_request_resync()
+        if self._commands_on_socket:
+            await self._async_request_resync()
+        else:
+            await self._async_reload_tree()
 
     def controls_for(self, platform: str) -> list[Control]:
         """Controls that belong on one platform, in a stable order."""
@@ -254,7 +267,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
             else:
                 self._ws = ws
                 try:
-                    await ws.send_json({"subscribe": ["*"]})
+                    await self._async_greet(ws)
                     await self._async_refresh_system()
                     self._async_set_connected(True)
                     self._retry_delay = RETRY_MIN_SECONDS
@@ -282,6 +295,35 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
                 return
             except TimeoutError:
                 self._retry_delay = min(self._retry_delay * 2, RETRY_MAX_SECONDS)
+
+    async def _async_greet(self, ws: Any) -> None:
+        """Subscribe on current firmware. An older firmware has already sent the tree.
+
+        Current firmware sends the WLED `{state, info}` frame until the client subscribes,
+        and it applies a control written on the socket. Older firmware sends the module
+        tree on connect and ignores that write, so commands stay on HTTP and a look goes
+        as `{"ps": slot}`.
+        """
+        message = None
+        try:
+            message = await asyncio.wait_for(ws.receive(), timeout=SOCKET_GREET_SECONDS)
+        except TimeoutError:
+            message = None
+        payload = _json_object(message)
+        if isinstance(payload, dict) and isinstance(payload.get("modules"), list):
+            self._commands_on_socket = False
+            _LOGGER.info(
+                "MoonLight at %s:%s is older firmware: the tree arrived without a subscription. "
+                "Commands go over HTTP.",
+                self.host,
+                self.port,
+            )
+            await self._async_handle(ws, message)
+            return
+        self._commands_on_socket = True
+        await ws.send_json({"subscribe": ["*"]})
+        if message is not None:
+            await self._async_handle(ws, message)
 
     async def _async_handle(self, ws: Any, message: Any) -> None:
         """One inbound frame. A WLED `{state, info}` frame is the shim, and it is ignored."""
@@ -381,22 +423,42 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.mac = dr.format_mac(system["mac"])
         self.async_sync_devices()
 
-    async def _async_send_control(self, module: str, control: str, value: Any) -> bool:
-        """Send one write on the socket. False when the socket cannot take it."""
+    async def _async_reload_tree(self) -> None:
+        """Read `/api/state` again. Older firmware has no `resync` frame."""
+        try:
+            state = await self.client.async_get_state()
+        except MoonLightError as err:
+            _LOGGER.info(
+                "MoonLight at %s:%s did not refresh /api/state (%s).",
+                self.host,
+                self.port,
+                err,
+            )
+            return
+        self._replace_tree(state)
+
+    async def _async_send_json(self, payload: dict[str, Any]) -> bool:
+        """Send one object on the open socket. False when the socket cannot take it."""
         ws = self._ws
         if ws is None or not self.data.connected:
             return False
         try:
-            await ws.send_json({"module": module, "control": control, "value": value})
+            await ws.send_json(payload)
         except (ConnectionError, RuntimeError, MoonLightError) as err:
             _LOGGER.info(
-                "MoonLight at %s:%s did not take a WebSocket write (%s). The change will be sent over HTTP.",
+                "MoonLight at %s:%s did not take a WebSocket write (%s).",
                 self.host,
                 self.port,
                 err,
             )
             return False
         return True
+
+    async def _async_send_control(self, module: str, control: str, value: Any) -> bool:
+        """Send one write on the socket. False when this firmware ignores that frame."""
+        if not self._commands_on_socket:
+            return False
+        return await self._async_send_json({"module": module, "control": control, "value": value})
 
     async def _async_request_resync(self, ws: Any | None = None) -> None:
         """Ask the device for the tree. The answer is a full document carrying this id."""
@@ -446,3 +508,16 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
 def _device_kwargs(info: DeviceInfo) -> dict[str, Any]:
     """`async_get_or_create` takes the device fields as keyword arguments."""
     return dict(info)
+
+
+def _json_object(message: Any) -> dict[str, Any] | None:
+    """The frame as an object, or None when it is not a JSON object."""
+    if message is None or getattr(message, "type", None) is not WSMsgType.TEXT:
+        return None
+    try:
+        payload = message.json()
+    except ValueError:
+        return None
+    if isinstance(payload, dict):
+        return payload
+    return None

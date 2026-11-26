@@ -87,11 +87,16 @@ class Module:
 
 @dataclass(frozen=True, slots=True)
 class Look:
-    """One effect preset. Applying it does not rewire pins or geometry."""
+    """One effect preset. Applying it does not rewire pins or geometry.
+
+    `row` is the id current firmware applies. `slot` is the 1-based place in the
+    preset list, which is what older firmware applies with `{"ps": slot}`.
+    """
 
     name: str
     row: str
     active: bool
+    slot: int = 0
 
 
 @dataclass(slots=True)
@@ -294,7 +299,7 @@ def parse_looks(value: Any) -> tuple[Look, ...]:
     if not isinstance(value, list):
         return ()
     looks: list[Look] = []
-    for row in value:
+    for index, row in enumerate(value):
         if not isinstance(row, dict):
             continue
         roles = row.get("roles")
@@ -308,7 +313,9 @@ def parse_looks(value: Any) -> tuple[Look, ...]:
         row_id = row.get("id", name)
         if isinstance(row_id, bool) or not isinstance(row_id, int | str):
             continue
-        looks.append(Look(name=name, row=str(row_id), active=row.get("active") is True))
+        looks.append(
+            Look(name=name, row=str(row_id), active=row.get("active") is True, slot=index + 1)
+        )
     return tuple(looks)
 
 

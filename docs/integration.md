@@ -53,13 +53,13 @@ The Look select on the Control device applies a look, which is where the web int
 
 Setup calls `GET /api/system` and `GET /api/state`. A connection failure and a body that is not MoonLight's API are different errors, and the config flow shows a different sentence for each. The MAC from `/api/system` is the config entry's unique id, formatted by Home Assistant.
 
-The background task then opens `ws://<host>:<port>/ws` and sends `{"subscribe":["*"]}`. The web interface subscribes to the page on screen. Home Assistant subscribes to the whole tree, because every card can be an entity at once. A frame that is `{state, info}` is the WLED shim, sent to a client that has not subscribed, and it is ignored.
+The background task then opens `ws://<host>:<port>/ws` and waits for the first frame. Current firmware sends the WLED `{state, info}` shim until the client subscribes, so the task sends `{"subscribe":["*"]}` and writes controls on the socket. Older firmware sends the module tree on connect and ignores a control written on the socket, so commands stay on `POST /api/control` and a look is `{"ps": slot}`, the 1-based place of that row in the preset list. The web interface subscribes to the page on screen. Home Assistant subscribes to the whole tree on current firmware, because every card can be an entity at once. A `{state, info}` frame is ignored.
 
 A document with `modules` replaces the tree. Entities that appeared are added. Entities whose control disappeared are removed. A side-nav device whose root disappeared can be deleted from the device registry. The endpoint device cannot.
 
 A `patch` list updates values in place. A patch that names a module or a control the tree does not have asks for the document again with `{"resync": n}`.
 
-The socket is the command path when it is open: `{"module", "control", "value"}`. `rejection` checks the value first and uses the phrases `POST /api/control` returns, so the user sees the same sentence either way. When the socket cannot take the write, the client repeats it with `POST /api/control`. Applying a look is HTTP only. The socket has no apply frame. After a look is applied the integration asks for a fresh document.
+On current firmware the socket is the command path when it is open: `{"module", "control", "value"}`. `rejection` checks the value first and uses the phrases `POST /api/control` returns, so the user sees the same sentence either way. When the socket cannot take the write, or the firmware is the older one, the client repeats it with `POST /api/control`. Applying a look on current firmware is `POST /api/list/Control/presets/<id>/apply`, then `{"resync": n}`. On older firmware it is `{"ps": slot}`, then a fresh `GET /api/state`, because that firmware has no apply route and no resync frame.
 
 A dropped socket sets `connected` false, logs the reason once per outage, and retries. The delay starts at 1 second and doubles up to 30 seconds. `async_shutdown` closes the socket so unload does not wait out that delay.
 
