@@ -1,6 +1,7 @@
 {
   "domain": "moonlight",
   "name": "MoonLight",
+  "categories": ["lighting"],
   "codeowners": ["@ewowi"],
   "config_flow": true,
   "documentation": "https://github.com/MoonModules/MoonLight-HomeAssistant",

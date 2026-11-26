@@ -27,14 +27,20 @@ from .const import (
 )
 from .exceptions import MoonLightCommandError, MoonLightConnectionError
 
-_SET_SCHEMA = cv.make_entity_service_schema(
+_SET_SCHEMA = vol.Schema(
     {
+        vol.Required("device_id"): cv.string,
         vol.Required(ATTR_MODULE): cv.string,
         vol.Required(ATTR_CONTROL): cv.string,
         vol.Required(ATTR_VALUE): cv.string,
     }
 )
-_LOOK_SCHEMA = cv.make_entity_service_schema({vol.Required(ATTR_LOOK): cv.string})
+_LOOK_SCHEMA = vol.Schema(
+    {
+        vol.Required("device_id"): cv.string,
+        vol.Required(ATTR_LOOK): cv.string,
+    }
+)
 
 
 def async_setup_services(hass: HomeAssistant) -> None:

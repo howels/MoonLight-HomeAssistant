@@ -63,7 +63,7 @@ A preset whose role is drivers or layouts is not a look. Applying it would rewir
 
 ## Actions
 
-`moonlight.set_control` writes one control. The value is JSON: `40`, `true`, or `"Rainbow"`. `moonlight.apply_look` applies one effect look by name. Both take a MoonLight device as the target.
+`moonlight.set_control` writes one control. The value is JSON: `40`, `true`, or `"Rainbow"`. `moonlight.apply_look` applies one effect look by name. Both take a MoonLight device.
 
 ## Contributing
 
