@@ -6,23 +6,18 @@ text back would store the obfuscation as the password.
 
 from __future__ import annotations
 
-import re
-
 from homeassistant.components.text import TextEntity, TextMode
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import MoonLightConfigEntry, MoonLightCoordinator
 from .entity import MoonLightEntity, async_setup_control_platform
-from .models import Control
+from .models import IPV4_ADDRESS, Control
 
 PARALLEL_UPDATES = 1
 
 # Long enough for a path or a broker URL. The device rejects a value it will not store.
 _MAX_LENGTH = 2048
-_IPV4 = re.compile(
-    r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
-)
 
 
 async def async_setup_entry(
@@ -43,8 +38,18 @@ class MoonLightText(MoonLightEntity, TextEntity):
     def __init__(self, coordinator: MoonLightCoordinator, control: Control) -> None:
         """Bind the text entity. An IPv4 control carries a pattern so a bad address fails here."""
         super().__init__(coordinator, control.module, control.name)
-        if control.type == "ipv4":
-            self._attr_pattern = _IPV4.pattern
+        self._apply_pattern(control)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Keep the IPv4 pattern on the control the device currently describes."""
+        control = self.control
+        if control is not None:
+            self._apply_pattern(control)
+        super()._handle_coordinator_update()
+
+    def _apply_pattern(self, control: Control) -> None:
+        self._attr_pattern = IPV4_ADDRESS.pattern if control.type == "ipv4" else None
 
     @property
     def native_value(self) -> str | None:

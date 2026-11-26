@@ -17,6 +17,7 @@ class FakeWebSocket:
         self.sent: list[Any] = []
         self._messages: asyncio.Queue[WSMessage | None] = asyncio.Queue()
         self.closed = False
+        self.heartbeat: float | None = None
 
     async def send_json(self, data: Any, dumps: Any = None) -> None:
         """Record a frame the integration sent."""

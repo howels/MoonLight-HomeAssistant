@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberEntity, NumberMode
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import MoonLightConfigEntry, MoonLightCoordinator
@@ -34,6 +34,17 @@ class MoonLightNumber(MoonLightEntity, NumberEntity):
     def __init__(self, coordinator: MoonLightCoordinator, control: Control) -> None:
         """Bind the number. The range is read live, because a resync can change it."""
         super().__init__(coordinator, control.module, control.name)
+        self._apply_mode(control)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """A later document can switch a slider to a box."""
+        control = self.control
+        if control is not None:
+            self._apply_mode(control)
+        super()._handle_coordinator_update()
+
+    def _apply_mode(self, control: Control) -> None:
         box = control.number_field or control.type == "pin"
         self._attr_mode = NumberMode.BOX if box else NumberMode.SLIDER
 

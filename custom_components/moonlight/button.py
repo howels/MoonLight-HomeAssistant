@@ -1,7 +1,7 @@
 """Buttons: a MoonLight button control.
 
-The device treats the write as the press. A control marked `confirm` still presses once.
-Home Assistant has its own confirmation on the button card when the user wants one.
+The device treats one write as the press. Factory reset and SD card format are created
+disabled, and the press is refused until Expert mode is on.
 """
 
 from __future__ import annotations

@@ -7,9 +7,12 @@ uses a default, and a malformed node is dropped rather than failing the whole tr
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+from awesomeversion import AwesomeVersion
 
 from .const import (
     LIGHT_CONTROLS,
@@ -20,13 +23,18 @@ from .const import (
     PRESET_MODULE,
     SENSOR_TYPES,
     SKIP_TYPES,
+    SOCKET_COMMANDS_VERSION,
     TEXT_TYPES,
 )
+from .exceptions import MoonLightResponseError
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-_IPV4 = re.compile(
+IPV4_ADDRESS = re.compile(
     r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
 )
+
+# confirm is the firmware's own "this cannot be undone". The names cover a build that omits the flag.
+_DESTRUCTIVE_NAMES = frozenset({"factory reset", "format"})
 
 
 def humanise(name: str) -> str:
@@ -61,8 +69,15 @@ class Control:
 
     @property
     def value_is_index(self) -> bool:
-        """A select or palette stores an index unless the device sent the option's name."""
-        return isinstance(self.value, int) and not isinstance(self.value, bool)
+        """A select or palette stores an index unless the device sent the option's name.
+
+        A missing value has not sent a name, so the next write is an index.
+        """
+        if self.type not in {"select", "palette"}:
+            return False
+        if isinstance(self.value, str) or isinstance(self.value, bool):
+            return False
+        return isinstance(self.value, int) or self.value is None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -182,12 +197,28 @@ def nav_roots(modules: dict[str, Module]) -> list[Module]:
     return sorted(roots, key=sort_key)
 
 
+def is_destructive(control: Control) -> bool:
+    """Factory reset and a filesystem format. The web UI asks for a second press."""
+    return control.confirm or control.name in _DESTRUCTIVE_NAMES
+
+
+def uses_socket_commands(version: object) -> bool:
+    """True from the v7.0.0 release up. Older firmware and a 7.0.0-dev build stay on HTTP."""
+    if not isinstance(version, str) or not version:
+        return False
+    parsed = AwesomeVersion(version)
+    if not parsed.valid:
+        return False
+    return parsed >= AwesomeVersion(SOCKET_COMMANDS_VERSION)
+
+
 def coerce_value(control: Control, value: Any) -> Any:
     """Shape a value the way the control's type stores it.
 
-    A whole float becomes an int. A select that stores an index accepts the option's name.
+    A numeric control is an integer, so a float is truncated before the range check.
+    A select that stores an index accepts the option's name.
     """
-    if control.type in NUMBER_TYPES and isinstance(value, float) and value.is_integer():
+    if control.type in NUMBER_TYPES and isinstance(value, float) and math.isfinite(value):
         return int(value)
     if (
         control.type in {"select", "palette"}
@@ -214,6 +245,8 @@ def rejection(control: Control, value: Any) -> str | None:
     if control.type in NUMBER_TYPES:
         if isinstance(value, bool) or not isinstance(value, int | float):
             return "value malformed"
+        if isinstance(value, float) and not math.isfinite(value):
+            return "value malformed"
         number = int(value)
         if control.minimum is not None and number < control.minimum:
             return "value out of range"
@@ -235,7 +268,7 @@ def rejection(control: Control, value: Any) -> str | None:
     if control.type in TEXT_TYPES:
         if not isinstance(value, str):
             return "value malformed"
-        if control.type == "ipv4" and _IPV4.match(value) is None:
+        if control.type == "ipv4" and IPV4_ADDRESS.match(value) is None:
             return "value malformed"
         return None
     if control.type == "button":
@@ -404,6 +437,52 @@ def parse_tree(payload: Any) -> tuple[dict[str, Module], dict[tuple[str, str], C
     presets = controls.get((PRESET_MODULE, PRESET_CONTROL))
     looks = parse_looks(presets.value if presets is not None else None)
     return modules, controls, looks, unknown
+
+
+def _control_text(controls: dict[tuple[str, str], Control], module: str, name: str) -> str | None:
+    control = controls.get((module, name))
+    if control is None or not isinstance(control.value, str) or not control.value:
+        return None
+    return control.value
+
+
+def supplement_system(system: dict[str, Any] | None, state: Any) -> dict[str, Any]:
+    """Fill mac, version and name from the tree when `/api/system` omits them.
+
+    v6.0.0 and the v7.0.0 release put neither field in `/api/system`. `System.mac`
+    and `Firmware.version` are on the tree in both.
+    """
+    merged = dict(system) if isinstance(system, dict) else {}
+    parsed = parse_tree(state)
+    if parsed is None:
+        return merged
+    _, controls, _, _ = parsed
+    if not isinstance(merged.get("mac"), str) or not merged.get("mac"):
+        mac = _control_text(controls, "System", "mac")
+        if mac is not None:
+            merged["mac"] = mac
+    if not isinstance(merged.get("version"), str) or not merged.get("version"):
+        version = _control_text(controls, "Firmware", "version") or _control_text(
+            controls, "Firmware", "appVersion"
+        )
+        if version is not None:
+            merged["version"] = version
+    if not isinstance(merged.get("name"), str) or not merged.get("name"):
+        name = _control_text(controls, "System", "deviceName")
+        if name is not None:
+            merged["name"] = name
+    return merged
+
+
+def require_mac(system: dict[str, Any]) -> dict[str, Any]:
+    """The MAC identifies the device. Without one this host is not MoonLight."""
+    mac = system.get("mac")
+    if not isinstance(mac, str) or not mac:
+        raise MoonLightResponseError(
+            "MoonLight did not report a MAC in /api/system or on the System card. "
+            "The host is not a MoonLight device, or the port is the web UI of something else."
+        )
+    return system
 
 
 def apply_patch(data: MoonLightData, patch: Any) -> bool:

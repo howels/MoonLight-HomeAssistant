@@ -17,14 +17,13 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityFeature,
 )
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .coordinator import MoonLightConfigEntry, MoonLightCoordinator
-from .exceptions import MoonLightCommandError, MoonLightConnectionError
+from .entity import home_assistant_error
+from .exceptions import MoonLightError
 
 PARALLEL_UPDATES = 1
 
@@ -55,6 +54,14 @@ class MoonLightLight(CoordinatorEntity[MoonLightCoordinator], LightEntity):
         self._attr_device_info = coordinator.async_device_info(
             _DRIVERS if coordinator.module(_DRIVERS) is not None else None
         )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Follow Drivers if that card appears after setup."""
+        self._attr_device_info = self.coordinator.async_device_info(
+            _DRIVERS if self.coordinator.module(_DRIVERS) is not None else None
+        )
+        super()._handle_coordinator_update()
 
     @property
     def available(self) -> bool:
@@ -102,45 +109,27 @@ class MoonLightLight(CoordinatorEntity[MoonLightCoordinator], LightEntity):
         return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Apply a look first, then brightness, then on. A bad look changes nothing else."""
+        """Apply a look first, then brightness, then on. The tree is read after those writes."""
         if ATTR_EFFECT in kwargs:
-            await self._async_look(str(kwargs[ATTR_EFFECT]))
+            await self._async_look(str(kwargs[ATTR_EFFECT]), refresh=False)
         if ATTR_BRIGHTNESS in kwargs:
             await self._async_control("brightness", int(kwargs[ATTR_BRIGHTNESS]))
         await self._async_control("on", True)
+        if ATTR_EFFECT in kwargs:
+            await self.coordinator.async_refresh_tree()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Clear Drivers `on`. Brightness is left as it is, as the card's toggle does."""
         await self._async_control("on", False)
 
-    async def _async_look(self, name: str) -> None:
+    async def _async_look(self, name: str, *, refresh: bool) -> None:
         try:
-            await self.coordinator.async_apply_look(name)
-        except MoonLightCommandError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="unknown_look",
-                translation_placeholders={"name": name, "error": str(err)},
-            ) from err
-        except MoonLightConnectionError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="not_connected",
-                translation_placeholders={"error": str(err)},
-            ) from err
+            await self.coordinator.async_apply_look(name, refresh=refresh)
+        except MoonLightError as err:
+            raise home_assistant_error(err, look=name) from err
 
     async def _async_control(self, control: str, value: Any) -> None:
         try:
             await self.coordinator.async_set_control(_DRIVERS, control, value)
-        except MoonLightCommandError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="command_failed",
-                translation_placeholders={"module": _DRIVERS, "control": control, "error": str(err)},
-            ) from err
-        except MoonLightConnectionError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="not_connected",
-                translation_placeholders={"error": str(err)},
-            ) from err
+        except MoonLightError as err:
+            raise home_assistant_error(err, module=_DRIVERS, control=control) from err

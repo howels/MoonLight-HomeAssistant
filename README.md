@@ -20,6 +20,8 @@ One config entry is one MoonLight endpoint. The endpoint is a device, named as t
 
 A control the firmware marks expert or developer is created and left disabled, as the web interface hides it until that mode. Enable it from the device page.
 
+Factory reset and formatting the SD card take two steps. Turn on Expert mode in the integration options. Then enable the button on the device page. Until both are done, the press is refused, including from an action.
+
 ## Install
 
 Through [HACS](https://hacs.xyz):
@@ -41,11 +43,11 @@ The WLED integration also discovers a MoonLight board, through `_wled._tcp`, and
 
 ## How it stays in step
 
-Setup reads `GET /api/system` and `GET /api/state`. The integration then opens `/ws`. Current firmware is sent `{"subscribe":["*"]}` and then the patches. Older firmware sends the tree on connect, without that subscription. Home Assistant keeps every page, because every card can be an entity at once.
+Setup reads `GET /api/system` and `GET /api/state`. The MAC and the firmware version come from `/api/system` when it carries them, and from the System and Firmware cards when it does not. The integration then opens `/ws` and sends `{"subscribe":["*"]}`. v7.0.0 and later apply a control written on that socket. Older firmware ignores the frame, so the change goes over HTTP. Home Assistant keeps every page, because every card can be an entity at once.
 
 A dropped socket marks the entities unavailable and reconnects. The delay doubles from 1 second to 30 seconds. The Connected sensor reads off while the socket is down, and it stays available so the off state is visible.
 
-On current firmware a change is sent on the WebSocket when it is open. Older firmware ignores that frame, so the change goes over HTTP. The same checks the device makes are applied first, and the phrases match `POST /api/control`: `value out of range`, `value malformed`, `control is read-only`. When the socket cannot take the write, the change is repeated over HTTP, which is where a refusal the local check cannot see comes back.
+On v7.0.0 and later a change is sent on the WebSocket when it is open. Older firmware ignores that frame, so the change goes over HTTP. The same checks the device makes are applied first, and the phrases match `POST /api/control`: `value out of range`, `value malformed`, `control is read-only`. When the socket cannot take the write, the change is repeated over HTTP, which is where a refusal the local check cannot see comes back.
 
 ## Errors
 

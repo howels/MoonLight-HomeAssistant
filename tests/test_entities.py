@@ -1,13 +1,13 @@
 """Entities follow the card path, and a write uses the socket."""
 
 import pytest
-from custom_components.moonlight.const import DOMAIN
-from custom_components.moonlight.exceptions import MoonLightCommandError
+from custom_components.moonlight.const import CONF_EXPERT_MODE, DOMAIN
+from custom_components.moonlight.exceptions import MoonLightCommandError, MoonLightExpertError
 from homeassistant.components.number import DOMAIN as NUMBER_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.helpers import entity_registry as er
 
-from .conftest import MAC
+from .conftest import MAC, state
 from .test_init import _setup
 
 
@@ -78,6 +78,28 @@ async def test_a_patch_moves_the_number(hass, aioclient_mock, moonlight_ws) -> N
     await hass.async_block_till_done()
     speed = _entity_id(hass, "number", f"{MAC}_Pulse_speed")
     assert hass.states.get(speed).state == "12.0"
+
+
+async def test_factory_reset_is_disabled_until_expert_mode(hass, aioclient_mock, moonlight_ws) -> None:
+    """The button starts disabled, and the write is refused until Expert mode is on."""
+    body = state()
+    for module in body["modules"]:
+        if module["name"] == "System":
+            module["controls"].append(
+                {"name": "factory reset", "type": "button", "confirm": True}
+            )
+    entry = await _setup(hass, aioclient_mock, state_body=body)
+    entity_id = _entity_id(hass, "button", f"{MAC}_System_factory reset")
+    assert entity_id is not None
+    assert er.async_get(hass).async_get(entity_id).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    with pytest.raises(MoonLightExpertError):
+        await entry.runtime_data.async_set_control("System", "factory reset", 1)
+    assert not any(
+        isinstance(item, dict) and item.get("control") == "factory reset" for item in moonlight_ws.sent
+    )
+    hass.config_entries.async_update_entry(entry, options={CONF_EXPERT_MODE: True})
+    await entry.runtime_data.async_set_control("System", "factory reset", 1)
+    assert {"module": "System", "control": "factory reset", "value": 1} in moonlight_ws.sent
 
 
 async def test_status_sensor_carries_severity(hass, aioclient_mock) -> None:

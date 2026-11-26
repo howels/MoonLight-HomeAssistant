@@ -23,7 +23,7 @@ def system() -> dict[str, Any]:
     return {
         "name": "MM-abcd",
         "mac": MAC,
-        "version": "0.9.0",
+        "version": "7.1.0-dev",
         "board": "esp32",
         "chip": "esp32",
         "firmware": "firmware-esp32",
@@ -158,7 +158,8 @@ def moonlight_ws() -> FakeWebSocket:
 def patch_websocket(monkeypatch: pytest.MonkeyPatch, moonlight_ws: FakeWebSocket):
     """Every client opens the fake socket."""
 
-    async def _connect(self: MoonLightClient) -> FakeWebSocket:
+    async def _connect(self: MoonLightClient, *, heartbeat: float | None = None) -> FakeWebSocket:
+        moonlight_ws.heartbeat = heartbeat
         return moonlight_ws
 
     monkeypatch.setattr(MoonLightClient, "ws_connect", _connect)

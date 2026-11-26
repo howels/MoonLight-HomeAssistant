@@ -43,6 +43,17 @@
       "reconfigure_successful": "The address is updated."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "MoonLight options",
+        "description": "Expert mode allows factory reset and formatting the SD card. Those buttons stay disabled until you enable each one on the device page.",
+        "data": {
+          "expert_mode": "Expert mode"
+        }
+      }
+    }
+  },
   "exceptions": {
     "command_failed": {
       "message": "MoonLight refused {module} {control}: {error}."
@@ -52,6 +63,12 @@
     },
     "unknown_look": {
       "message": "MoonLight has no effect look named {name}. {error}"
+    },
+    "request_failed": {
+      "message": "MoonLight did not accept the change. {error}"
+    },
+    "expert_required": {
+      "message": "Turn on Expert mode in the MoonLight options before {module} {control}. Then enable the button on the device page."
     },
     "no_device": {
       "message": "Choose a MoonLight device."

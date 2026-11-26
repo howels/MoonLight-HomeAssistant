@@ -1,7 +1,7 @@
 """Diagnostics for one MoonLight entry.
 
-The download is for a bug report. It names the modules and the control types, and it
-includes control values except passwords, which the integration never stores.
+The download is for a bug report. It names the modules and the control types.
+Control values are left out.
 """
 
 from __future__ import annotations

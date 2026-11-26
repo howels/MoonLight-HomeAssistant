@@ -9,16 +9,18 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .address import parse_address
 from .client import MoonLightClient
-from .const import DEFAULT_PORT, DOMAIN
+from .const import CONF_EXPERT_MODE, DEFAULT_PORT, DOMAIN
 from .exceptions import MoonLightConnectionError, MoonLightError, MoonLightResponseError
+from .models import require_mac, supplement_system
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +36,12 @@ class MoonLightConfigFlow(ConfigFlow, domain=DOMAIN):
     """One config entry per device."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: Any) -> MoonLightOptionsFlow:
+        """Expert mode. Factory reset and SD card format stay off until this is on."""
+        return MoonLightOptionsFlow()
 
     def __init__(self) -> None:
         """Hold a discovered device between the probe and the confirm step."""
@@ -111,14 +119,16 @@ class MoonLightConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_probe(
         self, host: str, port: int
     ) -> tuple[str, int, dict[str, Any]] | str:
-        """Return the checked address and `/api/system`, or a flow error key."""
+        """Return the checked address and the device identity, or a flow error key."""
         parsed = parse_address(host, port)
         if isinstance(parsed, str):
             return parsed
         host, port = parsed
         client = MoonLightClient(async_get_clientsession(self.hass), host, port)
         try:
-            system = await client.async_get_system()
+            system = require_mac(
+                supplement_system(await client.async_get_system(), await client.async_get_state())
+            )
         except MoonLightConnectionError as err:
             _LOGGER.info("MoonLight at %s:%s did not answer: %s", host, port, err)
             return "cannot_connect"
@@ -132,6 +142,22 @@ class MoonLightConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _async_create(self, host: str, port: int, system: dict[str, Any]) -> ConfigFlowResult:
         return self.async_create_entry(title=_title(system, host), data={CONF_HOST: host, CONF_PORT: port})
+
+
+class MoonLightOptionsFlow(OptionsFlow):
+    """One switch. Off leaves factory reset and SD card format refused."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Show Expert mode, default off."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        current = self.config_entry.options.get(CONF_EXPERT_MODE) is True
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_EXPERT_MODE, default=current): bool}
+            ),
+        )
 
 
 def _title(system: dict[str, Any], host: str) -> str:

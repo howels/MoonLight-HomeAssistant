@@ -18,8 +18,14 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import MoonLightConfigEntry, MoonLightCoordinator
-from .exceptions import MoonLightCommandError, MoonLightConnectionError
-from .models import Control, entity_name
+from .exceptions import (
+    MoonLightCommandError,
+    MoonLightConnectionError,
+    MoonLightError,
+    MoonLightExpertError,
+    MoonLightResponseError,
+)
+from .models import Control, entity_name, is_destructive
 
 # Expert and developer controls exist, and they start disabled so the device page stays readable.
 _MODE_USER = 0
@@ -66,32 +72,63 @@ class MoonLightEntity(CoordinatorEntity[MoonLightCoordinator]):
         """Send one value. A refusal is the device's reason, in the user's language file."""
         try:
             await self.coordinator.async_set_control(self._module, self._control, value)
-        except MoonLightCommandError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="command_failed",
-                translation_placeholders={
-                    "module": self._module,
-                    "control": self._control,
-                    "error": str(err),
-                },
-            ) from err
-        except MoonLightConnectionError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="not_connected",
-                translation_placeholders={"error": str(err)},
-            ) from err
+        except MoonLightError as err:
+            raise home_assistant_error(err, module=self._module, control=self._control) from err
 
     def _apply_registry_hints(self, control: Control) -> None:
-        """Where the entity sits on the device page. Expert controls start disabled, as the UI hides them until that mode."""
-        self._attr_entity_registry_enabled_default = control.min_mode == _MODE_USER
+        """Where the entity sits on the device page. Expert controls start disabled, as the UI hides them until that mode.
+
+        A factory reset or a format starts disabled as well. Expert mode is the other gate.
+        """
+        if is_destructive(control):
+            self._attr_entity_registry_enabled_default = False
+        else:
+            self._attr_entity_registry_enabled_default = control.min_mode == _MODE_USER
         if control.name == "@status" or control.min_mode >= 2:
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
         elif control.min_mode >= 1 or control.type == "pin":
             self._attr_entity_category = EntityCategory.CONFIG
         else:
             self._attr_entity_category = None
+
+
+def home_assistant_error(
+    err: MoonLightError,
+    *,
+    module: str = "",
+    control: str = "",
+    look: str | None = None,
+) -> HomeAssistantError:
+    """The Home Assistant error for one device failure, using the strings file."""
+    if isinstance(err, MoonLightExpertError):
+        return HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="expert_required",
+            translation_placeholders={"module": module, "control": control},
+        )
+    if isinstance(err, MoonLightConnectionError):
+        return HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="not_connected",
+            translation_placeholders={"error": str(err)},
+        )
+    if isinstance(err, MoonLightResponseError):
+        return HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="request_failed",
+            translation_placeholders={"error": str(err)},
+        )
+    if look is not None and isinstance(err, MoonLightCommandError):
+        return HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_look",
+            translation_placeholders={"name": look, "error": str(err)},
+        )
+    return HomeAssistantError(
+        translation_domain=DOMAIN,
+        translation_key="command_failed",
+        translation_placeholders={"module": module, "control": control, "error": str(err)},
+    )
 
 
 def async_setup_control_platform(

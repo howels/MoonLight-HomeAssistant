@@ -1,9 +1,11 @@
 """HTTP and WebSocket client for one MoonLight device.
 
-Setup reads `/api/system` and `/api/state`. After that the WebSocket at `/ws` carries the
-live tree. A command uses the socket when it is open, because that is the path the device
-applies within a frame. `POST /api/control` is the fallback, and it is also how a refusal
-is read back: the socket does not answer a write.
+Setup reads `/api/system` and `/api/state`. The MAC and the version are taken from
+`/api/system` when it has them, and from the System and Firmware cards when it does not.
+After that the WebSocket at `/ws` carries the live tree. From v7.0.0 a command uses the
+socket when it is open. Older firmware ignores that frame, so the command is
+`POST /api/control`, which is also how a refusal is read back: the socket does not
+answer a write.
 """
 
 from __future__ import annotations
@@ -78,15 +80,10 @@ class MoonLightClient:
         return payload
 
     async def async_get_system(self) -> dict[str, Any]:
-        """`GET /api/system`. The MAC and the version identify a MoonLight device."""
+        """`GET /api/system`. v6.0.0 and v7.0.0 omit `mac` and `version` here."""
         payload = await self._async_request("GET", "/api/system")
-        mac = payload.get("mac") if isinstance(payload, dict) else None
-        version = payload.get("version") if isinstance(payload, dict) else None
-        if not isinstance(mac, str) or not mac or not isinstance(version, str) or not version:
-            raise MoonLightResponseError(
-                "/api/system has no mac and version. The host is not a MoonLight device, "
-                "or the port is the web UI of something else."
-            )
+        if not isinstance(payload, dict):
+            raise MoonLightResponseError("/api/system returned JSON that is not an object")
         return payload
 
     async def async_get_state(self) -> dict[str, Any]:
@@ -115,12 +112,12 @@ class MoonLightClient:
         )
         await self._async_request("POST", path)
 
-    async def ws_connect(self) -> aiohttp.ClientWebSocketResponse:
-        """Open `/ws`. The caller sends `{"subscribe":["*"]}` and then reads."""
+    async def ws_connect(self, *, heartbeat: float | None) -> aiohttp.ClientWebSocketResponse:
+        """Open `/ws`. `heartbeat` is set only when this firmware answers a ping."""
         try:
             return await self._session.ws_connect(
                 f"ws://{host_for_url(self.host)}:{self.port}/ws",
-                heartbeat=20,
+                heartbeat=heartbeat,
                 timeout=REQUEST_TIMEOUT,
                 max_msg_size=WEBSOCKET_MAX_BYTES,
             )

@@ -1,16 +1,16 @@
 """Setup, the socket, and the side-nav devices."""
 
 import aiohttp
-from custom_components.moonlight.const import DOMAIN
+from custom_components.moonlight.const import DOMAIN, HEARTBEAT_SECONDS
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from .conftest import HOST, MAC, PORT, mock_device, state
+from .conftest import HOST, MAC, PORT, mock_device, system
 
 
-async def _setup(hass, aioclient_mock):
-    mock_device(aioclient_mock)
+async def _setup(hass, aioclient_mock, system_body=None, state_body=None):
+    mock_device(aioclient_mock, system_body=system_body, state_body=state_body)
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_HOST: HOST, CONF_PORT: PORT}, unique_id=MAC)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -22,6 +22,7 @@ async def test_setup_subscribes_and_orders_devices_like_the_nav(hass, aioclient_
     """The socket subscribes to the whole tree, and the devices are the side-nav roots."""
     entry = await _setup(hass, aioclient_mock)
     assert {"subscribe": ["*"]} in moonlight_ws.sent
+    assert moonlight_ws.heartbeat == HEARTBEAT_SECONDS
     assert entry.runtime_data.connected is True
     registry = dr.async_get(hass)
     endpoint = registry.async_get_device_by_identifier((DOMAIN, MAC), entry.entry_id)
@@ -35,10 +36,12 @@ async def test_setup_subscribes_and_orders_devices_like_the_nav(hass, aioclient_
 
 
 async def test_older_firmware_keeps_commands_on_http(hass, aioclient_mock, moonlight_ws) -> None:
-    """A tree that arrives before any subscription is older firmware. A control is an HTTP post."""
-    moonlight_ws.feed(state())
-    entry = await _setup(hass, aioclient_mock)
-    assert not any(isinstance(item, dict) and "subscribe" in item for item in moonlight_ws.sent)
+    """A version below 7.0.0 subscribes, and a control is still an HTTP post."""
+    older = system()
+    older["version"] = "6.0.0"
+    entry = await _setup(hass, aioclient_mock, system_body=older)
+    assert {"subscribe": ["*"]} in moonlight_ws.sent
+    assert moonlight_ws.heartbeat is None
     assert entry.runtime_data._commands_on_socket is False
     aioclient_mock.post(f"http://{HOST}:{PORT}/api/control", json={"ok": True})
     device = dr.async_get(hass).async_get_child_device_by_identifier(

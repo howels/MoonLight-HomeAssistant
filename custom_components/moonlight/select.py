@@ -7,15 +7,13 @@ shows the name either way, and writes back the form the device stored.
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .coordinator import MoonLightConfigEntry, MoonLightCoordinator
-from .entity import MoonLightEntity, async_setup_control_platform
-from .exceptions import MoonLightCommandError, MoonLightConnectionError
+from .entity import MoonLightEntity, async_setup_control_platform, home_assistant_error
+from .exceptions import MoonLightError
 from .models import Control
 
 PARALLEL_UPDATES = 1
@@ -30,8 +28,22 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Look select on Control, then one select per writable select and palette."""
     coordinator = entry.runtime_data
-    if coordinator.module(_CONTROL) is not None:
-        async_add_entities([MoonLightLookSelect(coordinator)])
+    look: MoonLightLookSelect | None = None
+
+    @callback
+    def _sync_look() -> None:
+        nonlocal look
+        if coordinator.module(_CONTROL) is None:
+            if look is not None:
+                look.async_remove()
+                look = None
+            return
+        if look is None:
+            look = MoonLightLookSelect(coordinator)
+            async_add_entities([look])
+
+    entry.async_on_unload(coordinator.async_add_listener(_sync_look))
+    _sync_look()
     await async_setup_control_platform("select", MoonLightSelect)(hass, entry, async_add_entities)
 
 
@@ -93,6 +105,13 @@ class MoonLightLookSelect(CoordinatorEntity[MoonLightCoordinator], SelectEntity)
         self._attr_unique_id = f"{coordinator.mac}_look"
         self._attr_device_info = coordinator.async_device_info(_CONTROL)
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Stay on the Control device if that card is recreated."""
+        if self.coordinator.module(_CONTROL) is not None:
+            self._attr_device_info = self.coordinator.async_device_info(_CONTROL)
+        super()._handle_coordinator_update()
+
     @property
     def available(self) -> bool:
         """Unavailable while the socket is down."""
@@ -115,16 +134,6 @@ class MoonLightLookSelect(CoordinatorEntity[MoonLightCoordinator], SelectEntity)
         """Apply the look."""
         try:
             await self.coordinator.async_apply_look(option)
-        except MoonLightCommandError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="unknown_look",
-                translation_placeholders={"name": option, "error": str(err)},
-            ) from err
-        except MoonLightConnectionError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="not_connected",
-                translation_placeholders={"error": str(err)},
-            ) from err
+        except MoonLightError as err:
+            raise home_assistant_error(err, look=option) from err
 

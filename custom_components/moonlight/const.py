@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Final
 
 from homeassistant.const import Platform
@@ -16,11 +15,11 @@ DEFAULT_PORT: Final = 80
 # How long one HTTP call may take. A live WebSocket is the steady state; this bounds connect and a command.
 REQUEST_TIMEOUT: Final = 10
 
-# The socket pushes a patch about once a second. A quiet minute means the connection is dead.
-SOCKET_STALE: Final = timedelta(seconds=60)
+# aiohttp pings at this interval. Current firmware answers. v6.0.0 ignores the ping and the socket would drop, so that generation connects without a heartbeat.
+HEARTBEAT_SECONDS: Final = 20.0
 
-# How long to wait for the first frame. An older firmware sends the tree on connect. A current one sends the WLED shim until the client subscribes, which is well inside this.
-SOCKET_GREET_SECONDS: Final = 2.0
+# Socket control writes, list apply and resync shipped in the v7.0.0 release. A 7.0.0-dev build compares below this and stays on HTTP.
+SOCKET_COMMANDS_VERSION: Final = "7.0.0"
 
 # Reconnect delay doubles from this floor up to the ceiling.
 RETRY_MIN_SECONDS: Final = 1.0
@@ -66,6 +65,9 @@ SKIP_TYPES: Final = frozenset({"password", "list"})
 
 SERVICE_SET_CONTROL: Final = "set_control"
 SERVICE_APPLY_LOOK: Final = "apply_look"
+
+# Off unless the user turns it on. Factory reset and SD card format also stay disabled entities.
+CONF_EXPERT_MODE: Final = "expert_mode"
 
 ATTR_MODULE: Final = "module"
 ATTR_CONTROL: Final = "control"

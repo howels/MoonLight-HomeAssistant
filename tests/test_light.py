@@ -29,6 +29,27 @@ async def test_turn_off_writes_drivers_on(hass, aioclient_mock, moonlight_ws) ->
     assert hass.states.get("light.mm_abcd_drivers_light").state == "off"
 
 
+async def test_effect_writes_brightness_before_the_tree_is_read(hass, aioclient_mock, moonlight_ws) -> None:
+    """The resync document must not arrive before brightness and on."""
+    await _setup(hass, aioclient_mock)
+    aioclient_mock.post("http://192.0.2.10:80/api/list/Control/presets/1/apply", json={"ok": True})
+    await hass.services.async_call(
+        LIGHT_DOMAIN,
+        "turn_on",
+        {
+            ATTR_ENTITY_ID: "light.mm_abcd_drivers_light",
+            ATTR_EFFECT: "Rainbow",
+            "brightness": 10,
+        },
+        blocking=True,
+    )
+    frames = [item for item in moonlight_ws.sent if isinstance(item, dict)]
+    brightness = next(index for index, frame in enumerate(frames) if frame.get("control") == "brightness")
+    on = next(index for index, frame in enumerate(frames) if frame.get("control") == "on" and frame.get("value") is True)
+    resync = next(index for index, frame in enumerate(frames) if "resync" in frame)
+    assert brightness < on < resync
+
+
 async def test_unknown_effect_names_the_look(hass, aioclient_mock) -> None:
     """A look the device does not have fails with that name."""
     await _setup(hass, aioclient_mock)

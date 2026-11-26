@@ -21,3 +21,7 @@ class MoonLightResponseError(MoonLightError):
 
 class MoonLightCommandError(MoonLightError):
     """The device refused one change. The message is the device's own reason when it sent one."""
+
+
+class MoonLightExpertError(MoonLightError):
+    """Expert mode is off, so a factory reset or a filesystem format was not sent."""

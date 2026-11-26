@@ -2,7 +2,7 @@
 
 import pytest
 from custom_components.moonlight.client import MoonLightClient
-from custom_components.moonlight.exceptions import MoonLightCommandError, MoonLightResponseError
+from custom_components.moonlight.exceptions import MoonLightCommandError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .conftest import HOST, PORT
@@ -20,9 +20,8 @@ async def test_refused_control_uses_the_device_reason(hass, aioclient_mock) -> N
         await client.async_set_control("Pulse", "speed", 999)
 
 
-async def test_system_without_a_mac_is_not_moonlight(hass, aioclient_mock) -> None:
-    """A 200 body with no MAC is a response error."""
-    aioclient_mock.get(f"http://{HOST}:{PORT}/api/system", json={"name": "other"})
+async def test_system_without_a_mac_is_still_json(hass, aioclient_mock) -> None:
+    """v6 `/api/system` has no MAC. The client returns the body and the tree supplies the MAC."""
+    aioclient_mock.get(f"http://{HOST}:{PORT}/api/system", json={"fps": 40})
     client = MoonLightClient(async_get_clientsession(hass), HOST, PORT)
-    with pytest.raises(MoonLightResponseError, match="not a MoonLight"):
-        await client.async_get_system()
+    assert await client.async_get_system() == {"fps": 40}

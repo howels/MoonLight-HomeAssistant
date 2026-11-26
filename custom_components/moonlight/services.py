@@ -12,7 +12,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import service
 
@@ -25,7 +25,8 @@ from .const import (
     SERVICE_APPLY_LOOK,
     SERVICE_SET_CONTROL,
 )
-from .exceptions import MoonLightCommandError, MoonLightConnectionError
+from .entity import home_assistant_error
+from .exceptions import MoonLightError
 
 _SET_SCHEMA = vol.Schema(
     {
@@ -53,21 +54,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
         for coordinator in await _coordinators(hass, call):
             try:
                 await coordinator.async_set_control(call.data[ATTR_MODULE], call.data[ATTR_CONTROL], value)
-            except MoonLightCommandError as err:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="command_failed",
-                    translation_placeholders={
-                        "module": call.data[ATTR_MODULE],
-                        "control": call.data[ATTR_CONTROL],
-                        "error": str(err),
-                    },
-                ) from err
-            except MoonLightConnectionError as err:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="not_connected",
-                    translation_placeholders={"error": str(err)},
+            except MoonLightError as err:
+                raise home_assistant_error(
+                    err,
+                    module=call.data[ATTR_MODULE],
+                    control=call.data[ATTR_CONTROL],
                 ) from err
 
     async def _apply_look(call: ServiceCall) -> None:
@@ -75,18 +66,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         for coordinator in await _coordinators(hass, call):
             try:
                 await coordinator.async_apply_look(name)
-            except MoonLightCommandError as err:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="unknown_look",
-                    translation_placeholders={"name": name, "error": str(err)},
-                ) from err
-            except MoonLightConnectionError as err:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="not_connected",
-                    translation_placeholders={"error": str(err)},
-                ) from err
+            except MoonLightError as err:
+                raise home_assistant_error(err, look=name) from err
 
     hass.services.async_register(DOMAIN, SERVICE_SET_CONTROL, _set_control, schema=_SET_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_APPLY_LOOK, _apply_look, schema=_LOOK_SCHEMA)
