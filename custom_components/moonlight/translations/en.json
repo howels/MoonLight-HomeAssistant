@@ -1,0 +1,26 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Add a MoonLight device",
+        "description": "The device's address. A board serves on port 80, MoonLight running on a computer on 8080.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "MoonLight device found",
+        "description": "Add {name} to Home Assistant?"
+      }
+    },
+    "error": {
+      "cannot_connect": "The device did not answer as MoonLight. Check the address and port."
+    },
+    "abort": {
+      "already_configured": "This device is already added; its address is updated.",
+      "cannot_connect": "The device did not answer as MoonLight."
+    }
+  }
+}

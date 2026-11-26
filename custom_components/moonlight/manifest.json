@@ -1,0 +1,20 @@
+{
+  "domain": "moonlight",
+  "name": "MoonLight",
+  "codeowners": ["@ewowi"],
+  "config_flow": true,
+  "documentation": "https://github.com/MoonModules/MoonLight-HomeAssistant",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/MoonModules/MoonLight-HomeAssistant/issues",
+  "requirements": [],
+  "version": "0.1.0",
+  "zeroconf": [
+    {
+      "type": "_http._tcp.local.",
+      "properties": {
+        "mm": "1"
+      }
+    }
+  ]
+}
