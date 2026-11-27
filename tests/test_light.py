@@ -20,6 +20,7 @@ async def test_light_reads_the_desk(hass, aioclient_mock) -> None:
     state = hass.states.get(LIGHT)
     assert state.state == "on"
     assert state.attributes["brightness"] == 128
+    assert state.attributes["level"] == 128
     assert state.attributes["effect"] == "Rainbow"
     assert state.attributes["effect_list"] == ["Rainbow", "Party"]
 

@@ -59,6 +59,12 @@ MOONLIGHT_URL=http://moonlight.local .venv/bin/pytest tests/test_live.py -s
 
 The run reads `/api/system` and `/api/state`, maps every control with the same functions the entities use, and opens `/ws`. It then posts one assigned desk switch and `Control.enabled`, checks each value on a fresh read and on the socket, and writes the previous value back before it returns.
 
+## Try a change in Home Assistant
+
+HACS Download takes the default branch. A change under test stays on its branch. Tag that commit as a pre-release on the fork `howels/MoonLight-HomeAssistant`. Leave `main` where it is, and do not tag `MoonModules/MoonLight-HomeAssistant`.
+
+The HACS entry has to be that fork. In HACS, turn on Show pre-release for the repository. The tag then appears in the version list. `v0.4.0-dev.1` is the first, on `full-control-integration`.
+
 ## When the device API changes
 
 1. Read the diff of `docs/reference/openapi.yaml` and of the WebSocket dispatch.

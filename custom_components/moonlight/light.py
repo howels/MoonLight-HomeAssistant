@@ -120,6 +120,18 @@ class MoonLightLight(CoordinatorEntity[MoonLightCoordinator], LightEntity):
         return control.value
 
     @property
+    def extra_state_attributes(self) -> dict[str, int]:
+        """The fader, including while the light is off.
+
+        Home Assistant omits `brightness` when `is_on` is false. The desk keeps the
+        fader, and the cards read `level` then.
+        """
+        control = self._slot(_FADER, "Drivers", "brightness")
+        if control is None or isinstance(control.value, bool) or not isinstance(control.value, int):
+            return {}
+        return {"level": control.value}
+
+    @property
     def effect_list(self) -> list[str]:
         """Palette names. encoder1's position selects one."""
         palette = self._palette()

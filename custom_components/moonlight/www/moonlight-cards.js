@@ -109,6 +109,14 @@ function writeControl(hass, deviceId, control, value) {
   hass.callService("moonlight", "set_control", data, { device_id: deviceId });
 }
 
+function lightLevel(state) {
+  // Home Assistant sets brightness to null while the light is off. The desk fader is `level`.
+  const attributes = (state && state.attributes) || {};
+  if (typeof attributes.brightness === "number" && Number.isFinite(attributes.brightness)) return attributes.brightness;
+  if (typeof attributes.level === "number" && Number.isFinite(attributes.level)) return attributes.level;
+  return 0;
+}
+
 function slot(entries, name) {
   return entries.find((entry) => field(entry, "module") === "Control" && field(entry, "control") === name);
 }
@@ -309,7 +317,7 @@ const STYLE = `
     padding: 8px 10px; font-size: 15px;
   }
   .slider { accent-color: var(--accent); height: 28px; }
-  .list { max-height: 240px; overflow: auto; margin-top: 8px; }
+  .list { max-height: 240px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; margin-top: 8px; }
   .item {
     display: block; width: 100%; text-align: left; background: transparent;
     border: 0; border-bottom: 1px solid var(--border); padding: 10px 8px;
@@ -317,7 +325,13 @@ const STYLE = `
   }
   .item.on { background: var(--card-bg-2); box-shadow: inset 2px 0 0 var(--accent); }
   .looks { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
-  .surface { overflow-x: auto; max-width: 100%; min-width: 0; }
+  .surface {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-gutter: stable;
+    max-width: 100%;
+    min-width: 0;
+  }
   /* Eight fixed columns, the same idea as MoonLight's --surface-col. A card narrower than the
      desk scrolls this strip. Shrinking the columns below this clips the three-digit readout. */
   .meter {
@@ -467,7 +481,7 @@ class MoonLightBasicCard extends MoonLightCard {
     const { hass, entity, state, deviceId, entries } = view;
     const root = this.shadowRoot;
     const on = state.state === "on";
-    const brightness = Number(state.attributes.brightness ?? 0);
+    const brightness = lightLevel(state);
     const palettes = state.attributes.effect_list || [];
     const effect = state.attributes.effect || "";
     const query = (this._query || "").toLowerCase();
@@ -574,7 +588,7 @@ class MoonLightProCard extends MoonLightCard {
         knob: index === 1 ? effectIndex : numberOf(encoder),
         knobMin: index === 1 ? 0 : minOf(encoder, 0),
         knobMax: index === 1 ? Math.max(palettes.length - 1, 0) : maxOf(encoder, 255),
-        level: index === 1 ? Number(state.attributes.brightness ?? 0) : numberOf(fader),
+        level: index === 1 ? lightLevel(state) : numberOf(fader),
         levelMax: index === 1 ? 255 : maxOf(fader, 255),
         swLabel: index === 1 ? "Power" : labelOf(sw && sw.state) || `Switch ${index}`,
         knobLabel,

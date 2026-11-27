@@ -8,7 +8,8 @@ A command is checked locally, then sent with `POST /api/control`. That call retu
 device's refusal. The socket accepts the same object and does not answer it, so a frame
 the device drops is a toggle that snaps back when the next document arrives. The web
 interface posts a toggle for the same reason. A document that still has the value from
-before the write does not move the entity back.
+before the write does not move the entity back. After two seconds the value the device
+keeps stands, so a write it did not hold cannot pin the entity.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from typing import Any
 
 from aiohttp import WSMsgType
@@ -69,6 +71,9 @@ from .models import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# A document already on the wire can still carry the pre-write value. After this, that value is the device's.
+_HOLD_SECONDS = 2.0
+
 type MoonLightConfigEntry = ConfigEntry[MoonLightCoordinator]
 
 
@@ -95,8 +100,8 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.endpoint_device_id: str | None = None
         # v7.0.0 and later apply {"module","control","value"} on the socket. Older firmware ignores that frame and applies {"ps": slot} instead.
         self._commands_on_socket = False
-        # (written value, value before the write). A document still carrying the old one is stale.
-        self._held: dict[tuple[str, str], tuple[Any, Any]] = {}
+        # (written value, value before the write, monotonic time). A document still carrying the old one is stale until _HOLD_SECONDS.
+        self._held: dict[tuple[str, str], tuple[Any, Any, float]] = {}
 
     async def _async_update_data(self) -> MoonLightData:
         """Read identity and the tree. A failure here is retried by Home Assistant."""
@@ -178,7 +183,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
             if found is not None:
                 found.enabled = value
         if previous != value:
-            self._held[(module, control)] = (value, previous)
+            self._held[(module, control)] = (value, previous, time.monotonic())
         self.async_set_updated_data(self.data)
 
     @property
@@ -518,12 +523,14 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         """Keep a write that the device has accepted when a document still has the old value.
 
         The next document that carries the written value confirms it. A different value is a
-        later change, from the device or from another client, and it stands.
+        later change, from the device or from another client, and it stands. A document that
+        still carries the old value after two seconds is the device keeping that value.
         """
+        now = time.monotonic()
         finished: list[tuple[str, str]] = []
-        for key, (new, old) in self._held.items():
+        for key, (new, old, at) in self._held.items():
             live = self.data.controls.get(key)
-            if live is None or live.value != old:
+            if live is None or live.value != old or now - at >= _HOLD_SECONDS:
                 finished.append(key)
                 continue
             live.value = new

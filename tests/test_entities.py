@@ -87,6 +87,20 @@ async def test_a_stale_document_does_not_undo_a_write(hass, aioclient_mock, moon
     assert hass.states.get(enabled).state == "on"
 
 
+async def test_a_held_write_yields_when_the_device_keeps_its_value(hass, aioclient_mock, moonlight_ws) -> None:
+    """A value the device still has after the hold window is the value shown."""
+    await _setup(hass, aioclient_mock)
+    mock_control(aioclient_mock)
+    enabled = _entity_id(hass, "switch", f"{MAC}_Control_enabled")
+    await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: enabled}, blocking=True)
+    coordinator = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
+    written, previous, _at = coordinator._held[("Control", "enabled")]
+    coordinator._held[("Control", "enabled")] = (written, previous, 0.0)
+    moonlight_ws.feed({"patch": [{"path": "Control/enabled", "value": True}]})
+    await hass.async_block_till_done()
+    assert hass.states.get(enabled).state == "on"
+
+
 async def test_out_of_range_is_the_device_sentence(hass, aioclient_mock) -> None:
     """A value outside min and max fails before a frame is sent."""
     await _setup(hass, aioclient_mock, options=PIPELINE)

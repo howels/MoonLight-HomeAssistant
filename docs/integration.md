@@ -62,7 +62,7 @@ The Look select on the Control device applies a look, which is where the web int
 | Surface | How the card finds it | Write |
 |---|---|---|
 | Power, channel 1 | the configured light | `light.turn_on` and `light.turn_off` |
-| Brightness, channel 1 | the light's brightness | `moonlight.set_control` on `Control` / `fader1` |
+| Brightness, channel 1 | the light's `brightness`, or `level` when that is null because the light is off | `moonlight.set_control` on `Control` / `fader1` |
 | Palette, channel 1 | the light's effect list | `set_control` on `encoder1`, value the palette index |
 | Switch, encoder or fader 2 to 8 | `module` `Control` and `control` `switchN`, `encoderN` or `faderN` | `set_control` on that control |
 | Display strip | `control` `display` | none |
@@ -75,7 +75,7 @@ Channel 1 is the light, so that column is always present. A later channel with n
 
 A pointer held on a dial, a fader or the brightness slider sets `_gesture`. The card skips `hass` updates until the pointer is up. Rebuilding the tree during the gesture would replace the control under the finger. When the pointer is up, the card replaces the tree only when the markup changed, so a state update elsewhere in Home Assistant does not redraw the dials.
 
-The dial and the sixteen-segment glyphs follow `buildKnob` and `SEG16` in MoonLight's `src/ui/app.js`. A column is 52px and a name is 11px, so Brightness fits the column. The panel is limited to the card width, so a card narrower than the desk scrolls the desk inside the card. A 500px editor preview fits the eight columns. Basic takes six columns of a section. The Pro card takes the full width. The colours are MoonLight's `:root` tokens. A name on the desk is the control the slot drives. An empty slot keeps `Switch 2`. Preset pads sit under the desk and wrap.
+The dial and the sixteen-segment glyphs follow `buildKnob` and `SEG16` in MoonLight's `src/ui/app.js`. A column is 52px and a name is 11px, so Brightness fits the column. The panel is limited to the card width. The desk strip scrolls horizontally and keeps the scrollbar's space, so the card height does not jump and a vertical bar does not take the width. A 500px editor preview fits the eight columns. Basic takes six columns of a section. The Pro card takes the full width. The colours are MoonLight's `:root` tokens. A name on the desk is the control the slot drives. An empty slot keeps `Switch 2`. Preset pads sit under the desk and wrap.
 
 ## Connect, then the socket
 
@@ -91,7 +91,7 @@ A document with `modules` replaces the tree. Entities that appeared are added. E
 
 A `patch` list updates values in place. A patch that names a module or a control the tree does not have reads the tree again: `{"resync": n}` on v7.0.0 and later, `GET /api/state` on older firmware.
 
-A control write is `POST /api/control` on every version. The web interface posts a toggle the same way. The socket accepts `{"module", "control", "value"}` and does not say whether the device applied it, so that frame is not the command path. `rejection` checks the value first and uses the phrases the POST returns. A numeric float is truncated to an integer before that check, and that integer is what is sent. A document that still carries the value from before the write does not move the entity. The next document that carries the written value, or a different value, does. Applying a look on v7.0.0 and later is `POST /api/list/Control/presets/<id>/apply`, then `{"resync": n}`. On older firmware it is `{"ps": slot}` and then `GET /api/state`. A down socket does not fall through to the apply route, which v6 does not have. A response that is not a command refusal and not a connection failure is reported as its own error.
+A control write is `POST /api/control` on every version. The web interface posts a toggle the same way. The socket accepts `{"module", "control", "value"}` and does not say whether the device applied it, so that frame is not the command path. `rejection` checks the value first and uses the phrases the POST returns. A numeric float is truncated to an integer before that check, and that integer is what is sent. A document that still carries the value from before the write does not move the entity for two seconds. After that, the value the device keeps stands. Applying a look on v7.0.0 and later is `POST /api/list/Control/presets/<id>/apply`, then `{"resync": n}`. On older firmware it is `{"ps": slot}` and then `GET /api/state`. A down socket does not fall through to the apply route, which v6 does not have. A response that is not a command refusal and not a connection failure is reported as its own error.
 
 A dropped socket sets `connected` false, logs the reason once per outage, and retries. The delay starts at 1 second and doubles up to 30 seconds. `async_shutdown` closes the socket so unload does not wait out that delay.
 
