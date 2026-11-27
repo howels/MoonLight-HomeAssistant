@@ -41,7 +41,7 @@ class MoonLightEntity(CoordinatorEntity[MoonLightCoordinator]):
         super().__init__(coordinator)
         self._module = module
         self._control = control
-        # `{mac}_{module}_{control}`. A Control slot is what the cards address as `_Control_{control}`.
+        # `{mac}_{module}_{control}`. The cards match `module` and `control` on the state, not this id.
         self._attr_unique_id = f"{coordinator.mac}_{module}_{control}"
         current = coordinator.control(module, control)
         self._attr_name = entity_name(coordinator.data.modules, current) if current is not None else control
@@ -58,6 +58,11 @@ class MoonLightEntity(CoordinatorEntity[MoonLightCoordinator]):
             self._attr_device_info = self.coordinator.async_device_info(current.module)
             self._apply_registry_hints(current)
         super()._handle_coordinator_update()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """`module` and `control` are how a card finds this entity. The registry does not send the unique id."""
+        return {"module": self._module, "control": self._control}
 
     @property
     def control(self) -> Control | None:

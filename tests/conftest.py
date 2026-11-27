@@ -19,6 +19,20 @@ HOST = "192.0.2.10"
 PORT = 80
 
 
+def mock_control(aioclient_mock) -> None:
+    """`POST /api/control` answers ok. A write test calls this before the service."""
+    aioclient_mock.post(f"http://{HOST}:{PORT}/api/control", json={"ok": True})
+
+
+def control_posts(aioclient_mock) -> list[dict]:
+    """Bodies posted to `/api/control`, in call order."""
+    return [
+        call[2]
+        for call in aioclient_mock.mock_calls
+        if str(call[0]).lower() == "post" and str(call[1]).endswith("/api/control")
+    ]
+
+
 def system() -> dict[str, Any]:
     """`GET /api/system` for the fixture device."""
     return {

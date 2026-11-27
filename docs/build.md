@@ -21,7 +21,7 @@ python3 -m venv .venv
 
 `MOONLIGHT_API_VERSION` in `custom_components/moonlight/const.py` is the MoonLight device API this integration is written against. It is `info.version` in MoonLight's `docs/reference/openapi.yaml`.
 
-`SOCKET_COMMANDS_VERSION` is `7.0.0`. That is the release where a control write, a list apply and a resync go over the WebSocket. It is a behaviour cut inside the API, not a second document. A firmware version below it still speaks the HTTP routes.
+`SOCKET_COMMANDS_VERSION` is `7.0.0`. That is the release where a resync and a ping go over the WebSocket. A control write is `POST /api/control` on every version. It is a behaviour cut inside the API, not a second document. A firmware version below it still speaks the HTTP routes.
 
 Diagnostics and system health report `MOONLIGHT_API_VERSION` as `api_version`, next to the version the device reported.
 
@@ -48,6 +48,16 @@ Point the tests at a chosen checkout:
 ```sh
 MOONLIGHT_ROOT=/path/to/MoonLight .venv/bin/pytest tests/test_api.py
 ```
+
+## A live device
+
+`tests/test_live.py` runs the client, the tree parser and one reversible write against a device. It skips when `MOONLIGHT_URL` is unset, so CI does not need one. The value is an origin with no path, such as `http://moonlight.local`.
+
+```sh
+MOONLIGHT_URL=http://moonlight.local .venv/bin/pytest tests/test_live.py -s
+```
+
+The run reads `/api/system` and `/api/state`, maps every control with the same functions the entities use, and opens `/ws`. It then posts one assigned desk switch and `Control.enabled`, checks each value on a fresh read and on the socket, and writes the previous value back before it returns.
 
 ## When the device API changes
 

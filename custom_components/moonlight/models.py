@@ -204,18 +204,52 @@ def _target_label(target: str) -> str | None:
     return humanise(name)
 
 
+# Home Assistant lists a device's entities by name, with numeric collation. The leading
+# number is the Control card's bank, so the device page keeps the order that card draws:
+# switches, encoders, faders, then the preset pads.
+_DESK = (
+    ("switch_row", "1 Switch"),
+    ("encoder", "2 Encoder"),
+    ("fader", "3 Fader"),
+)
+_PRESET = "4 Preset"
+
+
+def _desk_head(control: Control) -> str | None:
+    """`2 Encoder 4` for a desk slot, or None for an ordinary control."""
+    if not control.surface:
+        return None
+    for flag, head in _DESK:
+        if getattr(control, flag):
+            slot = _SLOT.fullmatch(control.name)
+            number = slot.group(2) if slot else ""
+            return f"{head} {number}".strip()
+    return None
+
+
 def entity_name(modules: dict[str, Module], control: Control) -> str:
     """The control's label, preceded by the nested cards it sits on.
 
-    A desk slot is named by what it drives, which changes when the desk reassigns the slot.
+    A desk slot is named by its bank, its channel and what it drives. The bank
+    changes the name when the desk reassigns the slot. An empty slot keeps the
+    bank and the channel.
     """
-    label = _target_label(control.target) if control.target else None
-    if not label:
-        label = humanise(control.name)
+    driven = _target_label(control.target) if control.target else None
+    head = _desk_head(control)
+    if head is not None:
+        label = f"{head}{PATH_MARK}{driven}" if driven else head
+    else:
+        label = driven or humanise(control.name)
     path = card_path(modules, control.module)
     if not path:
         return label
     return PATH_MARK.join((*path, label))
+
+
+def preset_name(slot: int, name: str | None = None) -> str:
+    """The pad's place in the preset list, then the name written on the pad."""
+    head = f"{_PRESET} {slot}"
+    return f"{head}{PATH_MARK}{name}" if name else head
 
 
 def nav_sort_key(module: Module) -> tuple[int, int, int]:

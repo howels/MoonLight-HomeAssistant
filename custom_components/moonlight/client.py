@@ -2,10 +2,8 @@
 
 Setup reads `/api/system` and `/api/state`. The MAC and the version are taken from
 `/api/system` when it has them, and from the System and Firmware cards when it does not.
-After that the WebSocket at `/ws` carries the live tree. From v7.0.0 a command uses the
-socket when it is open. Older firmware ignores that frame, so the command is
-`POST /api/control`, which is also how a refusal is read back: the socket does not
-answer a write.
+After that the WebSocket at `/ws` carries the live tree. A command is `POST /api/control`,
+which returns the device's refusal. The socket does not answer a write.
 """
 
 from __future__ import annotations

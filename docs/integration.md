@@ -39,41 +39,43 @@ The unique id does not use that path. It is `{mac}_{module}_{control}`, and modu
 | `password`, `list` | not an entity |
 | anything else | skipped, and the type is logged once |
 
-`enabled` is a pseudo-control. The state document puts it on the module header, and a module with `respectsEnabled` not false gets an Enabled switch even when the controls array has no such row.
+`enabled` is a pseudo-control. The state document puts it on the module header, and a module with `respectsEnabled` not false gets an Enabled switch even when the controls array has no such row. The Enabled switch on Control turns that module on or off. It does not turn the lights off. The light entity drives `switch1`, which the desk forwards to `Drivers.on`.
 
 `minMode` 1 and 2 start disabled. That is the web interface hiding a control until expert or developer mode.
 
 A button the firmware marks `confirm`, and a control named `factory reset` or `format`, is a destructive action. It is created disabled. The integration options add a second gate, Expert mode, which is off until the user turns it on. A press is refused while Expert mode is off, including `moonlight.set_control`. Enabling the entity and turning Expert mode on are both required.
 
-`switch1`, `fader1` and `encoder1` are not also a switch and two numbers. They are the Light on the Control device. `switch1` is power. `fader1` is brightness, already 0 to 255. `encoder1` selects the palette, which is the light's effect list, because a colour written to MoonLight snaps to a palette. A desk slot with no `target` is created and left unavailable. Its name follows `target` when the desk assigns one, and the unique id stays `{mac}_Control_{slot}`. Controls are added in declaration order, which is the order the Control card renders: display, switches, encoders, faders.
+`switch1`, `fader1` and `encoder1` are not also a switch and two numbers. They are the Light on the Control device. `switch1` is power. `fader1` is brightness, already 0 to 255. `encoder1` selects the palette, which is the light's effect list, because a colour written to MoonLight snaps to a palette. A desk slot with no `target` is created and left unavailable. Its unique id stays `{mac}_Control_{slot}`.
+
+Home Assistant lists the entities of one device by name. A desk slot's name starts with the bank the Control card draws, then the channel, then the control that slot drives: `2 Encoder 2 · Font`. An empty slot is `2 Encoder 3`. The banks are `1 Switch`, `2 Encoder` and `3 Fader`, which is the order of those strips on the card. The display strip is a sensor, so it stays on the Sensors list.
 
 ## Looks
 
 The `presets` list on the module named `Control` is the preset list. A row whose `roles` is exactly `["effects"]` is a look. Any other role is left out, because a Drivers or Layouts preset rewires pins or geometry.
 
-The Look select on the Control device applies a look, which is where the web interface keeps presets. Each filled effect pad is also a button, unique id `{mac}_pad_{slot}`, so a renamed look keeps the entity and the name follows the look. On v7.0.0 and later both call `POST /api/list/Control/presets/<id>/apply`. On older firmware both send `{"ps": slot}` on the socket, the 1-based place of that row in the full preset list.
+The Look select on the Control device applies a look, which is where the web interface keeps presets. Each filled effect pad is also a button, unique id `{mac}_pad_{slot}`, so a renamed look keeps the entity. The button's name is `4 Preset 1 · Rainbow`: the same bank number as the desk, the pad's place in the preset list, and the name on the pad. A driver or layout preset is not in that list, so its place is skipped. On v7.0.0 and later both call `POST /api/list/Control/presets/<id>/apply`. On older firmware both send `{"ps": slot}` on the socket, the 1-based place of that row in the full preset list.
 
 ## Lovelace cards
 
-`www/moonlight-cards.js` is the file Home Assistant loads, from `/moonlight/moonlight-cards.js`. Both cards are given the Control light. They read the rest of that light's device by unique id. The card code and the entity unique ids both use this table.
+`www/moonlight-cards.js` is the file Home Assistant loads, from `/moonlight/moonlight-cards.js`. Both cards are given the Control light. The visual editor is the built-in form. Its entity field is labelled MoonLight light and lists only lights from this integration, one per device. The cards read the rest of that light's device from state attributes. Home Assistant's entity registry does not include the unique id.
 
-| Surface | Unique id suffix | Write |
+| Surface | How the card finds it | Write |
 |---|---|---|
-| Power, channel 1 | the configured light, `{mac}_light` | `light.turn_on` and `light.turn_off` |
+| Power, channel 1 | the configured light | `light.turn_on` and `light.turn_off` |
 | Brightness, channel 1 | the light's brightness | `moonlight.set_control` on `Control` / `fader1` |
 | Palette, channel 1 | the light's effect list | `set_control` on `encoder1`, value the palette index |
-| Switch, encoder or fader 2 to 8 | `_Control_switchN`, `_Control_encoderN`, `_Control_faderN` | `set_control` on that control |
-| Display strip | `_Control_display` | none |
-| Effect list on Basic | `_look` | `select.select_option` |
-| Preset pads | `_pad_N` | `button.press` |
+| Switch, encoder or fader 2 to 8 | `module` `Control` and `control` `switchN`, `encoderN` or `faderN` | `set_control` on that control |
+| Display strip | `control` `display` | none |
+| Effect list on Basic | attribute `moonlight` `look` | `select.select_option` |
+| Preset pads | attribute `moonlight` `pad`, ordered by `slot` | `button.press` |
 
 `set_control` sends the value as a JSON string. `services.py` decodes that string, so `40`, `true` and `"Rainbow"` stay distinct.
 
-Channel 1 is the light, so that column is always present. A later channel with no entity stays in the row and ignores the pointer, which keeps switch N over encoder N over fader N.
+Channel 1 is the light, so that column is always present. A later channel with no entity stays in the row and ignores the pointer, which keeps switch N over encoder N over fader N. An unavailable entity publishes no attributes, so the card treats that slot the same way.
 
-A pointer held on a dial, a fader or the brightness slider sets `_gesture`. The card skips `hass` updates until the pointer is up. Rebuilding the tree during the gesture would replace the control under the finger.
+A pointer held on a dial, a fader or the brightness slider sets `_gesture`. The card skips `hass` updates until the pointer is up. Rebuilding the tree during the gesture would replace the control under the finger. When the pointer is up, the card replaces the tree only when the markup changed, so a state update elsewhere in Home Assistant does not redraw the dials.
 
-The dial and the sixteen-segment glyphs follow `buildKnob` and `SEG16` in MoonLight's `src/ui/app.js`. The card column is 76px so a 13px name fits on it. A narrow Lovelace column scrolls the eight-channel desk sideways. The colours are MoonLight's `:root` tokens.
+The dial and the sixteen-segment glyphs follow `buildKnob` and `SEG16` in MoonLight's `src/ui/app.js`. A column is 52px and a name is 11px, so Brightness fits the column. The panel is limited to the card width, so a card narrower than the desk scrolls the desk inside the card. A 500px editor preview fits the eight columns. Basic takes six columns of a section. The Pro card takes the full width. The colours are MoonLight's `:root` tokens. A name on the desk is the control the slot drives. An empty slot keeps `Switch 2`. Preset pads sit under the desk and wrap.
 
 ## Connect, then the socket
 
@@ -81,7 +83,7 @@ The dial and the sixteen-segment glyphs follow `buildKnob` and `SEG16` in MoonLi
 
 Setup calls `GET /api/system` and `GET /api/state`. A connection failure and a body that is not MoonLight's API are different errors, and the config flow shows a different sentence for each. The MAC, from `/api/system` or from `System.mac`, is the config entry's unique id, formatted by Home Assistant.
 
-The background task reads the version again, then opens `ws://<host>:<port>/ws` and sends `{"subscribe":["*"]}` on every connection. v6 ignores that frame and still pushes the tree, because a new socket calls `requestFullResync`. Current firmware sends the tree only after the subscription, and until then it sends a `{state, info}` compatibility frame, which is ignored. The generation is the version, not the first frame. `AwesomeVersion` compares it with `7.0.0`. A `7.0.0-dev` build compares below that release and stays on HTTP, which that build still applies. v7.0.0 and `7.1.0-dev` write controls on the socket.
+The background task reads the version again, then opens `ws://<host>:<port>/ws` and sends `{"subscribe":["*"]}` on every connection. v6 ignores that frame and still pushes the tree, because a new socket calls `requestFullResync`. Current firmware sends the tree only after the subscription, and until then it sends a `{state, info}` compatibility frame, which is ignored. The generation is the version, not the first frame. `AwesomeVersion` compares it with `7.0.0`. A `7.0.0-dev` build compares below that release. v7.0.0 and `7.1.0-dev` answer a ping and `{"resync": n}`.
 
 v6 does not answer a WebSocket ping. The client sets aiohttp's heartbeat only when the version is v7.0.0 or later. There is no timed read of the first frame: cancelling `receive()` marks the socket closed.
 
@@ -89,7 +91,7 @@ A document with `modules` replaces the tree. Entities that appeared are added. E
 
 A `patch` list updates values in place. A patch that names a module or a control the tree does not have reads the tree again: `{"resync": n}` on v7.0.0 and later, `GET /api/state` on older firmware.
 
-On v7.0.0 and later the socket is the command path when it is open: `{"module", "control", "value"}`. `rejection` checks the value first and uses the phrases `POST /api/control` returns, so the user sees the same sentence either way. A numeric float is truncated to an integer before that check, and that integer is what is sent. When the socket cannot take the write, or the firmware is older, the client repeats it with `POST /api/control`. Applying a look on v7.0.0 and later is `POST /api/list/Control/presets/<id>/apply`, then `{"resync": n}`. On older firmware it is `{"ps": slot}` and then `GET /api/state`. A down socket does not fall through to the apply route, which v6 does not have. A response that is not a command refusal and not a connection failure is reported as its own error.
+A control write is `POST /api/control` on every version. The web interface posts a toggle the same way. The socket accepts `{"module", "control", "value"}` and does not say whether the device applied it, so that frame is not the command path. `rejection` checks the value first and uses the phrases the POST returns. A numeric float is truncated to an integer before that check, and that integer is what is sent. A document that still carries the value from before the write does not move the entity. The next document that carries the written value, or a different value, does. Applying a look on v7.0.0 and later is `POST /api/list/Control/presets/<id>/apply`, then `{"resync": n}`. On older firmware it is `{"ps": slot}` and then `GET /api/state`. A down socket does not fall through to the apply route, which v6 does not have. A response that is not a command refusal and not a connection failure is reported as its own error.
 
 A dropped socket sets `connected` false, logs the reason once per outage, and retries. The delay starts at 1 second and doubles up to 30 seconds. `async_shutdown` closes the socket so unload does not wait out that delay.
 
@@ -97,6 +99,7 @@ A dropped socket sets `connected` false, logs the reason once per outage, and re
 
 | File | Responsibility |
 |---|---|
+| `brand/icon.png` | Momo, the MoonLight icon, from MoonLight's `src/ui/momo.png`. Home Assistant serves it as the integration icon, and as the logo when no separate logo is present |
 | `const.py` | Domain, platforms, nav order, timeouts, and `MOONLIGHT_API_VERSION` |
 | `address.py` | What the user typed, as a host and a port |
 | `client.py` | HTTP and the WebSocket |
@@ -104,7 +107,7 @@ A dropped socket sets `connected` false, logs the reason once per outage, and re
 | `coordinator.py` | The live tree, the socket task, and the devices |
 | `entity.py` | Identity, availability, and adding or removing entities |
 | `config_flow.py` | User, zeroconf, reconfigure, page options, Expert mode. The WLED step runs only when that integration already has this host or MAC, because the board advertises `_wled._tcp` |
-| `www/moonlight-cards.js` | The Basic and Pro Lovelace cards. The unique ids they match are under Lovelace cards |
+| `www/moonlight-cards.js` | The Basic and Pro Lovelace cards. The attributes they match are under Lovelace cards |
 | platform modules | One Home Assistant platform each |
 | `services.py` | `set_control` and `apply_look` |
 | `diagnostics.py` | The tree shape for a bug report |

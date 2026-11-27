@@ -2,9 +2,10 @@
 // Pro is the Control desk: display strip, switches, encoder dials, faders and preset pads.
 //
 // Both cards are given the Control light and find every other control on that device
-// by unique id. The suffixes, and which service each surface calls, are the table
-// under "Lovelace cards" in docs/integration.md. Change a suffix here and in the
-// Python entity together.
+// by state attributes. Home Assistant's entity registry does not send unique_id.
+// `module` and `control` mark a desk slot. `moonlight: "look"` is the effect list.
+// `moonlight: "pad"` and `slot` are a preset pad. The table is under "Lovelace cards"
+// in docs/integration.md.
 //
 // Channel 1 is the light: switch1 power, fader1 brightness, encoder1 the palette index.
 // Channels 2-8 are the desk entities. A missing slot stays in the column, dimmed.
@@ -15,11 +16,6 @@
 
 const BASIC = "moonlight-basic-card";
 const PRO = "moonlight-pro-card";
-
-// Unique id tails. light.py, entity.py, select.py and button.py build the same strings.
-const CONTROL_TAIL = "_Control_";
-const LOOK_TAIL = "_look";
-const PAD_TAIL = /_pad_(\d+)$/;
 
 const CHANNELS = 8;
 const STRIP_CELLS = 28;
@@ -81,38 +77,44 @@ function deviceOf(hass, entityId) {
   if (!deviceId) return { deviceId: null, entries: [] };
   const entries = Object.keys(entities)
     .filter((id) => entities[id].device_id === deviceId)
-    .map((id) => ({
-      id,
-      unique_id: entities[id].unique_id || "",
-      state: hass.states[id],
-    }));
+    .map((id) => ({ id, state: hass.states[id] }));
   return { deviceId, entries };
 }
 
-// The default friendly name is "{device} Control {label}". A renamed entity has no
-// "Control " mark, and the card shows the name the user set.
+function field(entry, key) {
+  return entry && entry.state && entry.state.attributes ? entry.state.attributes[key] : undefined;
+}
+
+// The driven control, after the device name and the bank prefix. `1 Switch 2 · Ampm` is `Ampm`.
+// An empty slot is `Switch 2`.
 function labelOf(state) {
   if (!state) return "";
-  const name = state.attributes.friendly_name || state.entity_id;
-  const mark = name.lastIndexOf("Control ");
-  return mark >= 0 ? name.slice(mark + "Control ".length) : name;
+  let name = state.attributes.friendly_name || state.entity_id;
+  const deviceMark = name.lastIndexOf("Control ");
+  if (deviceMark >= 0) name = name.slice(deviceMark + "Control ".length);
+  const driven = name.lastIndexOf(" · ");
+  if (driven >= 0) return name.slice(driven + 3);
+  return name.replace(/^[1-4] /, "");
 }
 
 function writeControl(hass, deviceId, control, value) {
-  hass.callService("moonlight", "set_control", {
+  // device_id is the target. It is also in the data, because the service schema requires it
+  // and an older frontend leaves a target field where the caller put it.
+  const data = {
     device_id: deviceId,
     module: "Control",
     control,
     value: JSON.stringify(value),
-  });
+  };
+  hass.callService("moonlight", "set_control", data, { device_id: deviceId });
 }
 
 function slot(entries, name) {
-  return entries.find((entry) => entry.unique_id.endsWith(`${CONTROL_TAIL}${name}`));
+  return entries.find((entry) => field(entry, "module") === "Control" && field(entry, "control") === name);
 }
 
 function lookEntry(entries) {
-  return entries.find((entry) => entry.unique_id.endsWith(LOOK_TAIL));
+  return entries.find((entry) => field(entry, "moonlight") === "look");
 }
 
 // One sixteen-segment cell. The coordinates are seg16Cell in MoonLight's src/ui/app.js:
@@ -250,6 +252,10 @@ function bindKnob(wrap, input, onCommit, hold) {
 const STYLE = `
   :host {
     display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     --bg-0: #1a1a2e;
     --bg-1: #16213e;
     --fg: #e0e0e0;
@@ -260,7 +266,7 @@ const STYLE = `
     --card-bg-2: #283661;
     --border: #2a3a6a;
     --led: #ff3b30;
-    --col: 76px;
+    --col: 52px;
     --gap: 4px;
     --channels: 8; /* CHANNELS. The desk is eight columns in both places. */
     color: var(--fg);
@@ -269,6 +275,10 @@ const STYLE = `
     line-height: 1.35;
   }
   .panel {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -307,29 +317,37 @@ const STYLE = `
   }
   .item.on { background: var(--card-bg-2); box-shadow: inset 2px 0 0 var(--accent); }
   .looks { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
-  .surface { overflow-x: auto; }
-  /* Seven gaps between eight columns. The width is the desk, and a narrow card scrolls it. */
-  .meter { width: calc(var(--channels) * var(--col) + (var(--channels) - 1) * var(--gap)); user-select: none; }
+  .surface { overflow-x: auto; max-width: 100%; min-width: 0; }
+  /* Eight fixed columns, the same idea as MoonLight's --surface-col. A card narrower than the
+     desk scrolls this strip. Shrinking the columns below this clips the three-digit readout. */
+  .meter {
+    width: calc(var(--channels) * var(--col) + (var(--channels) - 1) * var(--gap));
+    user-select: none;
+  }
+  .bank-name {
+    margin: 10px 0 4px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--fg-muted);
+  }
   .seg-strip { width: 100%; height: 32px; margin-bottom: 14px; }
-  .seg-readout { width: 54px; height: 26px; }
+  .seg-readout { width: 100%; max-width: var(--col); height: 22px; }
   .seg16 svg { display: block; width: 100%; height: 100%; }
   .seg16-on { fill: var(--led); stroke: var(--led); }
   .seg16-off { fill: var(--led); stroke: var(--led); opacity: 0.1; }
   .bank { display: flex; gap: var(--gap); margin-bottom: 12px; align-items: flex-start; }
   .ch {
-    position: relative; width: var(--col); flex: 0 0 var(--col); min-width: 0;
+    position: relative; width: var(--col); flex: 0 0 var(--col);
     display: flex; flex-direction: column; align-items: center; gap: 4px;
   }
   .name {
-    width: 100%; font-size: 13px; line-height: 1.25; text-align: center; color: var(--fg-muted);
+    width: 100%; font-size: 11px; line-height: 1.25; text-align: center; color: var(--fg-muted);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
   .pill {
-    width: 44px; height: 22px; border-radius: 11px; border: 1px solid var(--accent-soft);
+    width: 100%; max-width: 40px; height: 18px; border-radius: 9px; border: 1px solid var(--accent-soft);
     background: var(--bg-0); cursor: pointer; padding: 0;
   }
   .pill.on { background: var(--accent); border-color: var(--accent); }
-  .knob { width: 52px; height: 52px; touch-action: none; cursor: ns-resize; }
+  .knob { width: 40px; height: 40px; touch-action: none; cursor: ns-resize; }
   .knob svg, .knob svg * { pointer-events: none; }
   .knob.turning { filter: brightness(1.2); }
   .knob-face { fill: #10162c; }
@@ -340,10 +358,10 @@ const STYLE = `
     position: absolute; width: 1px; height: 1px; opacity: 0; margin: 0; padding: 0; pointer-events: none;
   }
   .fader {
-    writing-mode: vertical-lr; direction: rtl; width: 28px; height: 132px;
+    writing-mode: vertical-lr; direction: rtl; width: 24px; height: 120px;
     accent-color: var(--accent); background: transparent; cursor: ns-resize;
   }
-  .pads { display: grid; grid-template-columns: repeat(var(--channels), var(--col)); gap: var(--gap); }
+  .pads { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 12px; }
   .pad, .look {
     min-height: 44px; font-size: 13px; line-height: 1.2; padding: 6px 4px; cursor: pointer;
     color: var(--fg);
@@ -365,9 +383,35 @@ const STYLE = `
 `;
 
 class MoonLightCard extends HTMLElement {
+  static getConfigForm() {
+    return {
+      schema: [
+        {
+          name: "entity",
+          required: true,
+          selector: { entity: { filter: [{ integration: "moonlight", domain: "light" }] } },
+        },
+      ],
+      computeLabel: (schema) => (schema.name === "entity" ? "MoonLight light" : undefined),
+      computeHelper: (schema) =>
+        schema.name === "entity"
+          ? "The list is MoonLight lights only, one for each device. The card reads the other entities on that device."
+          : undefined,
+    };
+  }
+
+  static getStubConfig(hass) {
+    const states = (hass && hass.states) || {};
+    const entities = (hass && hass.entities) || {};
+    const found = Object.keys(states).find(
+      (id) => id.startsWith("light.") && entities[id] && entities[id].platform === "moonlight",
+    );
+    return { entity: found || "" };
+  }
+
   setConfig(config) {
-    if (!config || !config.entity) throw new Error("A MoonLight light entity is required.");
-    this._config = config;
+    this._config = config || {};
+    this._html = "";
   }
 
   set hass(hass) {
@@ -377,17 +421,34 @@ class MoonLightCard extends HTMLElement {
     this._render();
   }
 
+  getGridOptions() {
+    return { columns: 6, rows: "auto", min_columns: 3 };
+  }
+
   _hold(active) {
     this._gesture = active;
+  }
+
+  _paint(html) {
+    if (html === this._html) return false;
+    this._html = html;
+    this.shadowRoot.innerHTML = html;
+    return true;
   }
 
   // The light state, plus the other entities on its device. Null renders the missing panel.
   _open() {
     const hass = this._hass;
-    const entity = this._config.entity;
+    const entity = this._config && this._config.entity;
+    if (!entity) {
+      this._paint(`<style>${STYLE}</style><div class="panel">Choose a MoonLight light.</div>`);
+      return null;
+    }
     const state = hass.states[entity];
     if (!state) {
-      this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="panel">MoonLight light ${escapeText(entity)} is not available.</div>`;
+      this._paint(
+        `<style>${STYLE}</style><div class="panel">MoonLight light ${escapeText(entity)} is not available.</div>`,
+      );
       return null;
     }
     const found = deviceOf(hass, entity);
@@ -414,7 +475,7 @@ class MoonLightBasicCard extends MoonLightCard {
     const looks = look && look.state ? look.state.attributes.options || [] : [];
     const currentLook = look && look.state ? look.state.state : "";
     const shown = palettes.filter((name) => name.toLowerCase().includes(query));
-    root.innerHTML = `<style>${STYLE}</style>
+    if (!this._paint(`<style>${STYLE}</style>
       <div class="panel">
         <div class="row">
           <button class="power ${on ? "on" : ""}" title="Power">
@@ -435,7 +496,7 @@ class MoonLightBasicCard extends MoonLightCard {
         <div class="looks">
           ${looks.map((name) => `<button class="look ${name === currentLook ? "on" : ""}" data-look="${escapeAttr(name)}">${escapeText(name)}</button>`).join("")}
         </div>
-      </div>`;
+      </div>`)) return;
     root.querySelector(".power").addEventListener("click", () => {
       hass.callService("light", on ? "turn_off" : "turn_on", { entity_id: entity });
     });
@@ -484,6 +545,10 @@ class MoonLightProCard extends MoonLightCard {
     return 12;
   }
 
+  getGridOptions() {
+    return { columns: "full", rows: "auto" };
+  }
+
   _render() {
     const view = this._open();
     if (!view) return;
@@ -521,21 +586,23 @@ class MoonLightProCard extends MoonLightCard {
       });
     }
     const pads = entries
-      .filter((entry) => PAD_TAIL.test(entry.unique_id))
-      .sort((a, b) => Number(a.unique_id.match(PAD_TAIL)[1]) - Number(b.unique_id.match(PAD_TAIL)[1]));
-    root.innerHTML = `<style>${STYLE}</style>
+      .filter((entry) => field(entry, "moonlight") === "pad")
+      .sort((a, b) => Number(field(a, "slot")) - Number(field(b, "slot")));
+    if (!this._paint(`<style>${STYLE}</style>
       <div class="panel">
         <div class="surface">
           <div class="meter">
             ${segSvg(strip, STRIP_CELLS, true)}
+            <div class="bank-name">Switches</div>
             <div class="bank">${channels
               .map(
                 (ch) => `<div class="ch ${ch.swMissing ? "missing" : ""}">
                   <button class="pill ${ch.on ? "on" : ""}" data-switch="${ch.index}" title="${escapeAttr(ch.swLabel)}" aria-label="${escapeAttr(ch.swLabel)}"></button>
-                  <span class="name">${escapeText(ch.swLabel)}</span>
+                  <span class="name" title="${escapeAttr(ch.swLabel)}">${escapeText(ch.swLabel)}</span>
                 </div>`,
               )
               .join("")}</div>
+            <div class="bank-name">Encoders</div>
             <div class="bank">${channels
               .map((ch) => {
                 const span = ch.knobMax - ch.knobMin;
@@ -548,28 +615,29 @@ class MoonLightProCard extends MoonLightCard {
                 </div>`;
               })
               .join("")}</div>
+            <div class="bank-name">Faders</div>
             <div class="bank">${channels
               .map(
                 (ch) => `<div class="ch ${ch.faderMissing ? "missing" : ""}">
                   <input class="fader" data-fader="${ch.index}" type="range" min="0" max="${ch.levelMax}" value="${ch.level}" aria-label="${escapeAttr(ch.faderLabel)}">
                   ${readout(ch.level)}
-                  <span class="name">${escapeText(ch.faderLabel)}</span>
+                  <span class="name" title="${escapeAttr(ch.faderLabel)}">${escapeText(ch.faderLabel)}</span>
                 </div>`,
               )
               .join("")}</div>
-            ${
-              pads.length
-                ? `<div class="pads">${pads
-                    .map((pad) => {
-                      const name = labelOf(pad.state);
-                      return `<button class="pad ${name === currentLook ? "on" : ""}" data-pad="${escapeAttr(pad.id)}">${escapeText(name)}</button>`;
-                    })
-                    .join("")}</div>`
-                : ""
-            }
           </div>
         </div>
-      </div>`;
+        ${
+          pads.length
+            ? `<div class="pads">${pads
+                .map((pad) => {
+                  const name = labelOf(pad.state);
+                  return `<button class="pad ${name === currentLook ? "on" : ""}" data-pad="${escapeAttr(pad.id)}">${escapeText(name)}</button>`;
+                })
+                .join("")}</div>`
+            : ""
+        }
+      </div>`)) return;
     root.querySelectorAll("[data-switch]").forEach((button) => {
       button.addEventListener("click", () => {
         const index = Number(button.dataset.switch);
@@ -648,6 +716,16 @@ if (!customElements.get(PRO)) customElements.define(PRO, MoonLightProCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push(
-  { type: BASIC, name: "MoonLight Basic", description: "Power, brightness, palette and effect looks." },
-  { type: PRO, name: "MoonLight Pro", description: "The Control desk: display, switches, encoders, faders and preset pads." },
+  {
+    type: BASIC,
+    name: "MoonLight Basic",
+    preview: true,
+    description: "Power, brightness, palette and effect looks.",
+  },
+  {
+    type: PRO,
+    name: "MoonLight Pro",
+    preview: true,
+    description: "The Control desk: display, switches, encoders, faders and preset pads.",
+  },
 );

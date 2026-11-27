@@ -63,19 +63,18 @@ class MoonLightSensor(MoonLightEntity, SensorEntity):
         return None
 
     @property
-    def extra_state_attributes(self) -> dict[str, object] | None:
-        """Status carries the module's severity. Progress carries its total."""
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Status carries the module's severity. Progress carries its total. `module` and `control` stay."""
+        attributes: dict[str, object] = dict(super().extra_state_attributes)
         control = self.control
         if control is None:
-            return None
+            return attributes
         if control.name == "@status":
             module = self.coordinator.module(control.module)
-            if module is None or module.severity is None:
-                return None
-            return {"severity": module.severity}
-        if control.type == "progress" and control.total is not None:
-            attributes: dict[str, object] = {"total": control.total}
+            if module is not None and module.severity is not None:
+                attributes["severity"] = module.severity
+        elif control.type == "progress" and control.total is not None:
+            attributes["total"] = control.total
             if control.unit:
                 attributes["unit"] = control.unit
-            return attributes
-        return None
+        return attributes

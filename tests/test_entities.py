@@ -1,4 +1,4 @@
-"""Entities follow the card path, and a write uses the socket."""
+"""Entities follow the card path, and a write is POST /api/control."""
 
 import pytest
 from custom_components.moonlight.const import CONF_EXPERT_MODE, DOMAIN
@@ -7,7 +7,7 @@ from homeassistant.components.number import DOMAIN as NUMBER_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.helpers import entity_registry as er
 
-from .conftest import HOST, MAC, PORT, state
+from .conftest import HOST, MAC, PORT, control_posts, mock_control, state
 from .test_init import PIPELINE, _setup
 
 
@@ -52,9 +52,10 @@ async def test_unknown_password_and_light_controls_are_absent(hass, aioclient_mo
     assert registry.async_get_entity_id("switch", DOMAIN, f"{MAC}_Drivers_on") is not None
 
 
-async def test_number_write_goes_over_the_socket(hass, aioclient_mock, moonlight_ws) -> None:
-    """A slider write is a socket frame, and the state moves before the next patch."""
+async def test_number_write_is_a_post(hass, aioclient_mock, moonlight_ws) -> None:
+    """A slider write is POST /api/control, and the state moves before the next patch."""
     await _setup(hass, aioclient_mock, options=PIPELINE)
+    mock_control(aioclient_mock)
     speed = _entity_id(hass, "number", f"{MAC}_Pulse_speed")
     await hass.services.async_call(
         NUMBER_DOMAIN,
@@ -62,8 +63,28 @@ async def test_number_write_goes_over_the_socket(hass, aioclient_mock, moonlight
         {ATTR_ENTITY_ID: speed, "value": 40},
         blocking=True,
     )
-    assert {"module": "Pulse", "control": "speed", "value": 40} in moonlight_ws.sent
+    assert {"module": "Pulse", "control": "speed", "value": 40} in control_posts(aioclient_mock)
+    assert {"module": "Pulse", "control": "speed", "value": 40} not in moonlight_ws.sent
     assert hass.states.get(speed).state == "40.0"
+
+
+async def test_a_stale_document_does_not_undo_a_write(hass, aioclient_mock, moonlight_ws) -> None:
+    """Enabled stays off when a document still carries the value from before the POST."""
+    await _setup(hass, aioclient_mock)
+    mock_control(aioclient_mock)
+    enabled = _entity_id(hass, "switch", f"{MAC}_Control_enabled")
+    assert hass.states.get(enabled).state == "on"
+    assert hass.states.get(enabled).attributes["control"] == "enabled"
+    await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: enabled}, blocking=True)
+    assert {"module": "Control", "control": "enabled", "value": False} in control_posts(aioclient_mock)
+    moonlight_ws.feed({"patch": [{"path": "Control/enabled", "value": True}]})
+    await hass.async_block_till_done()
+    assert hass.states.get(enabled).state == "off"
+    moonlight_ws.feed({"patch": [{"path": "Control/enabled", "value": False}]})
+    await hass.async_block_till_done()
+    moonlight_ws.feed({"patch": [{"path": "Control/enabled", "value": True}]})
+    await hass.async_block_till_done()
+    assert hass.states.get(enabled).state == "on"
 
 
 async def test_out_of_range_is_the_device_sentence(hass, aioclient_mock) -> None:
@@ -132,9 +153,13 @@ async def test_control_desk_follows_declaration_order(hass, aioclient_mock) -> N
     assert sensors == ["display"]
     fader = _entity_id(hass, "number", f"{MAC}_Control_fader2")
     assert hass.states.get(fader).state == "40.0"
-    assert hass.states.get(fader).name.endswith("Speed")
+    assert hass.states.get(fader).name.endswith("3 Fader 2 · Speed")
     switch = _entity_id(hass, "switch", f"{MAC}_Control_switch2")
     assert hass.states.get(switch).state == "unavailable"
-    assert hass.states.get(switch).name.endswith("Switch 2")
+    assert hass.states.get(switch).name.endswith("1 Switch 2")
     display = _entity_id(hass, "sensor", f"{MAC}_Control_display")
     assert hass.states.get(display).state == "MoonLight"
+    assert hass.states.get(display).attributes["control"] == "display"
+    fader_state = hass.states.get(fader)
+    assert fader_state.attributes["module"] == "Control"
+    assert fader_state.attributes["control"] == "fader2"

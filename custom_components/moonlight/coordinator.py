@@ -4,10 +4,11 @@
 `/ws` open. Patches update the same data object the entities read. A dropped socket marks
 the entities unavailable and reconnects. The delay doubles from one second to thirty.
 
-A command is checked locally, then sent on the socket when the firmware is v7.0.0 or
-newer. The same check uses the phrases the device returns from `POST /api/control`.
-Older firmware, and a socket that cannot take the write, uses HTTP, which is also
-where a refusal the local check cannot see comes back.
+A command is checked locally, then sent with `POST /api/control`. That call returns the
+device's refusal. The socket accepts the same object and does not answer it, so a frame
+the device drops is a toggle that snaps back when the next document arrives. The web
+interface posts a toggle for the same reason. A document that still has the value from
+before the write does not move the entity back.
 """
 
 from __future__ import annotations
@@ -94,6 +95,8 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.endpoint_device_id: str | None = None
         # v7.0.0 and later apply {"module","control","value"} on the socket. Older firmware ignores that frame and applies {"ps": slot} instead.
         self._commands_on_socket = False
+        # (written value, value before the write). A document still carrying the old one is stale.
+        self._held: dict[tuple[str, str], tuple[Any, Any]] = {}
 
     async def _async_update_data(self) -> MoonLightData:
         """Read identity and the tree. A failure here is retried by Home Assistant."""
@@ -151,7 +154,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
             self._task = None
 
     async def async_set_control(self, module: str, control: str, value: Any) -> None:
-        """Set one control. The local check runs first. The socket carries the write when it is up."""
+        """Set one control. The local check runs first. `POST /api/control` carries the write."""
         current = self.data.controls.get((module, control))
         if current is None:
             if module not in self.data.modules:
@@ -163,13 +166,19 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         reason = rejection(current, value)
         if reason is not None:
             raise MoonLightCommandError(reason)
-        if not await self._async_send_control(module, control, value):
-            await self.client.async_set_control(module, control, value)
-        current.value = value
+        previous = current.value
+        await self.client.async_set_control(module, control, value)
+        # A full document can replace the tree while the POST is in flight. Write the live control.
+        live = self.data.controls.get((module, control))
+        if live is None:
+            live = current
+        live.value = value
         if control == "enabled" and isinstance(value, bool):
             found = self.data.modules.get(module)
             if found is not None:
                 found.enabled = value
+        if previous != value:
+            self._held[(module, control)] = (value, previous)
         self.async_set_updated_data(self.data)
 
     @property
@@ -428,6 +437,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
                 )
                 await self.async_refresh_tree()
             else:
+                self._apply_held()
                 self.async_set_updated_data(self.data)
             return
         if "state" in payload and "info" in payload:
@@ -466,6 +476,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.data.looks = looks
         self.data.unknown_types.update(unknown)
         self.data.last_error = None
+        self._apply_held()
         self.async_set_updated_data(self.data)
         self.async_sync_devices()
         name = self._device_name()
@@ -503,11 +514,25 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
             return False
         return True
 
-    async def _async_send_control(self, module: str, control: str, value: Any) -> bool:
-        """Send one write on the socket. False when this firmware ignores that frame."""
-        if not self._commands_on_socket:
-            return False
-        return await self._async_send_json({"module": module, "control": control, "value": value})
+    def _apply_held(self) -> None:
+        """Keep a write that the device has accepted when a document still has the old value.
+
+        The next document that carries the written value confirms it. A different value is a
+        later change, from the device or from another client, and it stands.
+        """
+        finished: list[tuple[str, str]] = []
+        for key, (new, old) in self._held.items():
+            live = self.data.controls.get(key)
+            if live is None or live.value != old:
+                finished.append(key)
+                continue
+            live.value = new
+            if key[1] == "enabled" and isinstance(new, bool):
+                found = self.data.modules.get(key[0])
+                if found is not None:
+                    found.enabled = new
+        for key in finished:
+            self._held.pop(key, None)
 
     async def _async_request_resync(self, ws: Any | None = None) -> None:
         """Ask the device for the tree. The answer is a full document carrying this id."""

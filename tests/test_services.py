@@ -4,7 +4,7 @@ import pytest
 from custom_components.moonlight.const import DOMAIN
 from homeassistant.helpers import device_registry as dr
 
-from .conftest import MAC
+from .conftest import MAC, control_posts, mock_control
 from .test_init import PIPELINE, _setup
 
 
@@ -15,13 +15,15 @@ async def test_set_control_json_number(hass, aioclient_mock, moonlight_ws) -> No
         (DOMAIN, f"{MAC}_Effects"), entry.entry_id
     )
     assert device is not None
+    mock_control(aioclient_mock)
     await hass.services.async_call(
         DOMAIN,
         "set_control",
         {"device_id": device.id, "module": "Pulse", "control": "speed", "value": "40"},
         blocking=True,
     )
-    assert {"module": "Pulse", "control": "speed", "value": 40} in moonlight_ws.sent
+    assert {"module": "Pulse", "control": "speed", "value": 40} in control_posts(aioclient_mock)
+    assert {"module": "Pulse", "control": "speed", "value": 40} not in moonlight_ws.sent
     assert entry.runtime_data.control("Pulse", "speed").value == 40
 
 

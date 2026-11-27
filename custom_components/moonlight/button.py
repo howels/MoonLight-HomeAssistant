@@ -16,7 +16,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .coordinator import MoonLightConfigEntry, MoonLightCoordinator
 from .entity import MoonLightEntity, async_setup_control_platform, home_assistant_error
 from .exceptions import MoonLightError
-from .models import Control, Look
+from .models import Control, Look, preset_name
 
 PARALLEL_UPDATES = 1
 
@@ -78,7 +78,7 @@ class MoonLightPadButton(CoordinatorEntity[MoonLightCoordinator], ButtonEntity):
         """Bind the button to one preset slot on the Control device."""
         super().__init__(coordinator)
         self._slot = slot
-        # `{mac}_pad_{slot}`. The Pro card collects these.
+        # `{mac}_pad_{slot}`. The Pro card collects pads by the `moonlight` attribute and `slot`.
         self._attr_unique_id = f"{coordinator.mac}_pad_{slot}"
         self._attr_device_info = coordinator.async_device_info(_CONTROL)
 
@@ -90,9 +90,14 @@ class MoonLightPadButton(CoordinatorEntity[MoonLightCoordinator], ButtonEntity):
 
     @property
     def name(self) -> str:
-        """The look's name. It changes when the pad is renamed. The slot does not."""
+        """The preset bank, the pad's place, and the name on the pad. A rename keeps the slot."""
         look = self._look()
-        return look.name if look is not None else f"Pad {self._slot}"
+        return preset_name(self._slot, look.name if look is not None else None)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int | str]:
+        """The Pro card lists pads by `slot`. The registry does not send the unique id."""
+        return {"moonlight": "pad", "slot": self._slot}
 
     @property
     def available(self) -> bool:

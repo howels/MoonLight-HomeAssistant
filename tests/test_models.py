@@ -14,6 +14,7 @@ from custom_components.moonlight.models import (
     nav_roots,
     parse_looks,
     parse_tree,
+    preset_name,
     rejection,
     require_mac,
     supplement_system,
@@ -56,7 +57,9 @@ def test_the_light_owns_the_first_desk_channel() -> None:
     assert entity_platform(controls[("Control", "fader1")]) is None
     assert entity_platform(controls[("Control", "encoder1")]) is None
     assert entity_platform(controls[("Drivers", "on")]) == "switch"
-    assert entity_name(modules, controls[("Control", "fader2")]) == "Speed"
+    assert entity_name(modules, controls[("Control", "fader2")]) == "3 Fader 2 · Speed"
+    assert entity_name(modules, controls[("Control", "switch2")]) == "1 Switch 2"
+    assert preset_name(1, "Rainbow") == "4 Preset 1 · Rainbow"
     assert controls[("Control", "switch2")].assigned is False
     ordered = [
         control.name

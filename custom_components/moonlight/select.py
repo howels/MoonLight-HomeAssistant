@@ -102,7 +102,7 @@ class MoonLightLookSelect(CoordinatorEntity[MoonLightCoordinator], SelectEntity)
     def __init__(self, coordinator: MoonLightCoordinator) -> None:
         """Bind the select to the Control device."""
         super().__init__(coordinator)
-        # `{mac}_look`. The Basic card reads the effect list from this entity.
+        # `{mac}_look`. The Basic card finds this entity by the `moonlight` attribute.
         self._attr_unique_id = f"{coordinator.mac}_look"
         self._attr_device_info = coordinator.async_device_info(_CONTROL)
 
@@ -112,6 +112,11 @@ class MoonLightLookSelect(CoordinatorEntity[MoonLightCoordinator], SelectEntity)
         if self.coordinator.module(_CONTROL) is not None:
             self._attr_device_info = self.coordinator.async_device_info(_CONTROL)
         super()._handle_coordinator_update()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """The cards find the effect list by this attribute. The registry does not send the unique id."""
+        return {"moonlight": "look"}
 
     @property
     def available(self) -> bool:

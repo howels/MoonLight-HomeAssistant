@@ -2,7 +2,7 @@
 
 A Home Assistant integration for [MoonLight](https://github.com/MoonModules/MoonLight). It speaks MoonLight's HTTP API and WebSocket, and lays the device out the way the MoonLight web interface does.
 
-One config entry is one MoonLight endpoint. The endpoint is a device, named as the status bar names it. Control is shown on its own. The other side-nav pages stay hidden until the integration options turn them on: the light pipeline (Layouts, Effects, Drivers), then the device pages (System, File Manager, Network, Devices, Services, Firmware). System includes factory reset and the settings that can take the device off the network. A root the nav does not name waits for Other modules. A nested card is not its own device. Its controls are entities on the side-nav device, and the entity name is the path of cards: on Effects, Pulse's speed is `Layer · Pulse · Speed`. On the Control desk, a slot is named by what it drives, in the order the card declares them: display, switches, encoders, faders, then the preset pads.
+One config entry is one MoonLight endpoint. The endpoint is a device, named as the status bar names it. Control is shown on its own. The other side-nav pages stay hidden until the integration options turn them on: the light pipeline (Layouts, Effects, Drivers), then the device pages (System, File Manager, Network, Devices, Services, Firmware). System includes factory reset and the settings that can take the device off the network. A root the nav does not name waits for Other modules. A nested card is not its own device. Its controls are entities on the side-nav device, and the entity name is the path of cards: on Effects, Pulse's speed is `Layer · Pulse · Speed`. On the Control desk, a slot is named by its bank, its channel and what it drives: `2 Encoder 2 · Font`. Home Assistant sorts a device page by name, so those banks stay in the order the card draws: switches, encoders, faders, then the preset pads.
 
 ## What you can control
 
@@ -13,7 +13,7 @@ One config entry is one MoonLight endpoint. The endpoint is a device, named as t
 | Control on the card | Switch, number, select, text, button or sensor, from the control's type |
 | Desk `switch1`, `fader1`, `encoder1` | The Light on the Control device: power, brightness, palette |
 | Control presets that are effect looks | The Look select on Control, and one button per pad |
-| Enabled toggle on a card | An Enabled switch on that card's path |
+| Enabled toggle on a card | An Enabled switch on that card's path. On Control it turns that module on or off, and it does not turn the lights off |
 | Status line | A diagnostic sensor |
 | WebSocket dot | The Connected sensor on the endpoint |
 
@@ -42,18 +42,16 @@ A board also advertises `_wled._tcp`. Home Assistant's WLED integration discover
 
 ## How it stays in step
 
-Setup reads `GET /api/system` and `GET /api/state`. The MAC and the firmware version come from `/api/system` when it carries them, and from the System and Firmware cards when it does not. The integration then opens `/ws` and sends `{"subscribe":["*"]}`. v7.0.0 and later apply a control written on that socket. Older firmware ignores the frame, so the change goes over HTTP. Only Control is created until an option turns another page on. Changing an option reloads the entry.
+Setup reads `GET /api/system` and `GET /api/state`. The MAC and the firmware version come from `/api/system` when it carries them, and from the System and Firmware cards when it does not. The integration then opens `/ws` and sends `{"subscribe":["*"]}`. The socket carries the live tree. A control write is `POST /api/control` on every version. The socket accepts the same object and does not say whether the device applied it, so that frame is not the command path. A document that still has the value from before the write does not move the entity. Only Control is created until an option turns another page on. Changing an option reloads the entry.
 
-A dropped socket marks the entities unavailable and reconnects. The delay doubles from 1 second to 30 seconds. The Connected sensor reads off while the socket is down, and it stays available so the off state is visible.
-
-On v7.0.0 and later a change is sent on the WebSocket when it is open. Older firmware ignores that frame, so the change goes over HTTP. The same checks the device makes are applied first, and the phrases match `POST /api/control`: `value out of range`, `value malformed`, `control is read-only`. When the socket cannot take the write, the change is repeated over HTTP, which is where a refusal the local check cannot see comes back.
+A dropped socket marks the entities unavailable and reconnects. The delay doubles from 1 second to 30 seconds. The Connected sensor reads off while the socket is down, and it stays available so the off state is visible. The same checks the device makes are applied before the POST, and the phrases match that route: `value out of range`, `value malformed`, `control is read-only`.
 
 ## Errors
 
 - The host did not answer. The address or the port is wrong, or the device is off.
 - The host answered, but not with MoonLight's API. The usual cause is the port.
 - A refused control shows the device's reason.
-- While the WebSocket is down, a write fails and the entities are unavailable.
+- While the WebSocket is down, the entities are unavailable.
 
 ## What is not an entity
 
@@ -63,7 +61,7 @@ A preset whose role is drivers or layouts is not a look. Applying it would rewir
 
 ## Cards
 
-The integration registers two Lovelace cards. Each is given the MoonLight light. The display, the other channels, the looks and the pads are the other entities on that light's device. How those unique ids line up is in [docs/integration.md](docs/integration.md).
+The integration registers two Lovelace cards. The visual editor lists MoonLight lights only, one for each device. The card reads the display, the other channels, the looks and the pads from that light's device. How it matches them is in [docs/integration.md](docs/integration.md).
 
 Basic, `custom:moonlight-basic-card`, is power, a brightness slider, the palette list and the effect looks.
 
