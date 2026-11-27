@@ -28,9 +28,23 @@ from .const import (
 from .entity import home_assistant_error
 from .exceptions import MoonLightError
 
+
+def _one_device(value: Any) -> str:
+    """One device id.
+
+    A card sends the id as a string. Home Assistant's service target turns that
+    same field into a one-item list before the action schema runs.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
+        return value[0]
+    raise vol.Invalid("value should be a string")
+
+
 _SET_SCHEMA = vol.Schema(
     {
-        vol.Required("device_id"): cv.string,
+        vol.Required("device_id"): _one_device,
         vol.Required(ATTR_MODULE): cv.string,
         vol.Required(ATTR_CONTROL): cv.string,
         vol.Required(ATTR_VALUE): cv.string,
@@ -38,7 +52,7 @@ _SET_SCHEMA = vol.Schema(
 )
 _LOOK_SCHEMA = vol.Schema(
     {
-        vol.Required("device_id"): cv.string,
+        vol.Required("device_id"): _one_device,
         vol.Required(ATTR_LOOK): cv.string,
     }
 )

@@ -69,7 +69,7 @@ The Look select on the Control device applies a look, which is where the web int
 | Effect list on Basic | attribute `moonlight` `look` | `select.select_option` |
 | Preset pads | attribute `moonlight` `pad`, ordered by `slot` | `button.press` |
 
-`set_control` sends the value as a JSON string. `services.py` decodes that string, so `40`, `true` and `"Rainbow"` stay distinct.
+`set_control` sends the value as a JSON string. `services.py` decodes that string, so `40`, `true` and `"Rainbow"` stay distinct. The device id is one string in that data. The action also accepts the one-item list Home Assistant substitutes when the same field arrives as a service target.
 
 Channel 1 is the light, so that column is always present. A later channel with no entity stays in the row and ignores the pointer, which keeps switch N over encoder N over fader N. An unavailable entity publishes no attributes, so the card treats that slot the same way.
 

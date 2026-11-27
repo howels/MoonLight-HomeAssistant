@@ -27,6 +27,23 @@ async def test_set_control_json_number(hass, aioclient_mock, moonlight_ws) -> No
     assert entry.runtime_data.control("Pulse", "speed").value == 40
 
 
+async def test_set_control_accepts_a_target_list(hass, aioclient_mock) -> None:
+    """Home Assistant delivers a service target's device id as a one-item list."""
+    entry = await _setup(hass, aioclient_mock, options=PIPELINE)
+    device = dr.async_get(hass).async_get_child_device_by_identifier(
+        (DOMAIN, f"{MAC}_Effects"), entry.entry_id
+    )
+    assert device is not None
+    mock_control(aioclient_mock)
+    await hass.services.async_call(
+        DOMAIN,
+        "set_control",
+        {"device_id": [device.id], "module": "Pulse", "control": "speed", "value": "40"},
+        blocking=True,
+    )
+    assert {"module": "Pulse", "control": "speed", "value": 40} in control_posts(aioclient_mock)
+
+
 async def test_value_must_be_json(hass, aioclient_mock) -> None:
     """A bare word is not JSON, and the error says so."""
     from homeassistant.exceptions import ServiceValidationError

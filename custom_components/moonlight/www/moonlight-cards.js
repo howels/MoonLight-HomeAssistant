@@ -98,15 +98,13 @@ function labelOf(state) {
 }
 
 function writeControl(hass, deviceId, control, value) {
-  // device_id is the target. It is also in the data, because the service schema requires it
-  // and an older frontend leaves a target field where the caller put it.
-  const data = {
+  // device_id stays in the data. A target argument is a list, and the action wants one id.
+  hass.callService("moonlight", "set_control", {
     device_id: deviceId,
     module: "Control",
     control,
     value: JSON.stringify(value),
-  };
-  hass.callService("moonlight", "set_control", data, { device_id: deviceId });
+  });
 }
 
 function lightLevel(state) {
