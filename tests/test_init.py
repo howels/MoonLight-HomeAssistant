@@ -8,10 +8,23 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from .conftest import HOST, MAC, PORT, mock_device, system
 
+# The pages past Control. Tests that read those devices pass this as options.
+PIPELINE = {
+    "show_layouts": True,
+    "show_effects": True,
+    "show_drivers": True,
+    "show_system": True,
+}
 
-async def _setup(hass, aioclient_mock, system_body=None, state_body=None):
+
+async def _setup(hass, aioclient_mock, system_body=None, state_body=None, options=None):
     mock_device(aioclient_mock, system_body=system_body, state_body=state_body)
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_HOST: HOST, CONF_PORT: PORT}, unique_id=MAC)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_HOST: HOST, CONF_PORT: PORT},
+        options=options or {},
+        unique_id=MAC,
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -28,18 +41,30 @@ async def test_setup_subscribes_and_orders_devices_like_the_nav(hass, aioclient_
     endpoint = registry.async_get_device_by_identifier((DOMAIN, MAC), entry.entry_id)
     assert endpoint is not None
     assert endpoint.name == "MM-abcd"
+    control = registry.async_get_child_device_by_identifier((DOMAIN, f"{MAC}_Control"), entry.entry_id)
+    assert control is not None
+    assert control.parent_device_id == endpoint.id
+    for root in ("Layouts", "Effects", "Drivers", "System"):
+        assert registry.async_get_child_device_by_identifier((DOMAIN, f"{MAC}_{root}"), entry.entry_id) is None
+    assert registry.async_get_child_device_by_identifier((DOMAIN, f"{MAC}_Pulse"), entry.entry_id) is None
+
+
+async def test_a_page_appears_when_its_option_is_on(hass, aioclient_mock) -> None:
+    """Layouts, Effects, Drivers and System stay hidden until their options are on."""
+    entry = await _setup(hass, aioclient_mock, options=PIPELINE)
+    registry = dr.async_get(hass)
+    endpoint = registry.async_get_device_by_identifier((DOMAIN, MAC), entry.entry_id)
     for root in ("Control", "Layouts", "Effects", "Drivers", "System"):
         device = registry.async_get_child_device_by_identifier((DOMAIN, f"{MAC}_{root}"), entry.entry_id)
         assert device is not None
         assert device.parent_device_id == endpoint.id
-    assert registry.async_get_child_device_by_identifier((DOMAIN, f"{MAC}_Pulse"), entry.entry_id) is None
 
 
 async def test_older_firmware_keeps_commands_on_http(hass, aioclient_mock, moonlight_ws) -> None:
     """A version below 7.0.0 subscribes, and a control is still an HTTP post."""
     older = system()
     older["version"] = "6.0.0"
-    entry = await _setup(hass, aioclient_mock, system_body=older)
+    entry = await _setup(hass, aioclient_mock, system_body=older, options=PIPELINE)
     assert {"subscribe": ["*"]} in moonlight_ws.sent
     assert moonlight_ws.heartbeat is None
     assert entry.runtime_data._commands_on_socket is False
@@ -86,10 +111,10 @@ async def test_unload_closes_the_socket(hass, aioclient_mock, moonlight_ws) -> N
 async def test_a_dropped_socket_marks_entities_unavailable(hass, aioclient_mock, moonlight_ws) -> None:
     """A close makes the light unavailable and the Connected sensor off."""
     await _setup(hass, aioclient_mock)
-    state = hass.states.get("light.mm_abcd_drivers_light")
+    state = hass.states.get("light.mm_abcd_control_light")
     assert state is not None
     assert state.state == "on"
     moonlight_ws.feed_close()
     await hass.async_block_till_done()
-    assert hass.states.get("light.mm_abcd_drivers_light").state == "unavailable"
+    assert hass.states.get("light.mm_abcd_control_light").state == "unavailable"
     assert hass.states.get("binary_sensor.mm_abcd_connected").state == "off"

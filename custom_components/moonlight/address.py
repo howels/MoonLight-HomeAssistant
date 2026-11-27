@@ -1,40 +1,66 @@
-"""Turn what the user typed into a host and a port.
+"""Turn what the user typed into a host, a port and whether the connection uses TLS.
 
-MoonLight has no TLS listener. An address is a name or an IP, plus the port field, or an
-`http://` URL whose port overrides the field.
+The host field is a name, an address, or an `http://` or `https://` URL with no path.
+`ws://` and `wss://` are the same addresses. A URL with no port uses 80, or 443 for
+https and wss. A number in the port field replaces that port, including a port written
+in the URL.
 """
 
 from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from .const import DEFAULT_PORT, HTTPS_PORT
 
-def parse_address(host: str, port: int) -> tuple[str, int] | str:
-    """Return `(host, port)` or a config-flow error key.
+_HTTP = frozenset({"http", "ws"})
+_HTTPS = frozenset({"https", "wss"})
+
+
+def parse_address(host: str, port: int | None) -> tuple[str, int, bool] | str:
+    """Return `(host, port, tls)` or a config-flow error key.
 
     `host` is the name or address, without a scheme and without brackets.
+    `port` is the port field. `None` means the field was left blank.
+    `tls` is true when the URL scheme is `https` or `wss`.
     """
     text = host.strip()
     if not text:
         return "invalid_host"
-    if "://" in text:
-        parsed = urlparse(text)
-        if parsed.scheme in {"https", "wss"}:
-            return "tls_unsupported"
-        if parsed.scheme not in {"http", "ws"}:
-            return "invalid_host"
-        if parsed.hostname is None or parsed.path not in {"", "/"} or parsed.params or parsed.query:
-            return "invalid_host"
-        try:
-            chosen = parsed.port if parsed.port is not None else port
-        except ValueError:
-            return "invalid_port"
-        name = parsed.hostname
-    else:
+    if "://" not in text:
         if any(mark in text for mark in " /?#[]"):
             return "invalid_host"
-        chosen = port
-        name = text
-    if isinstance(chosen, bool) or not isinstance(chosen, int) or not 1 <= chosen <= 65535:
+        chosen = DEFAULT_PORT if port is None else port
+        if not _valid_port(chosen):
+            return "invalid_port"
+        return text, chosen, False
+    parsed = urlparse(text)
+    if parsed.scheme not in _HTTP | _HTTPS:
+        return "invalid_host"
+    if (
+        parsed.hostname is None
+        or parsed.path not in {"", "/"}
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+        or parsed.username
+        or parsed.password
+    ):
+        return "invalid_host"
+    try:
+        url_port = parsed.port
+    except ValueError:
         return "invalid_port"
-    return name, chosen
+    tls = parsed.scheme in _HTTPS
+    if port is not None:
+        chosen = port
+    elif url_port is not None:
+        chosen = url_port
+    else:
+        chosen = HTTPS_PORT if tls else DEFAULT_PORT
+    if not _valid_port(chosen):
+        return "invalid_port"
+    return parsed.hostname, chosen, tls
+
+
+def _valid_port(port: object) -> bool:
+    return isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535

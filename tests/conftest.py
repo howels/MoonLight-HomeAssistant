@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from custom_components.moonlight.client import MoonLightClient
+from custom_components.moonlight.const import MOONLIGHT_API_VERSION
 
 from .fake_ws import FakeWebSocket
 
@@ -23,7 +24,7 @@ def system() -> dict[str, Any]:
     return {
         "name": "MM-abcd",
         "mac": MAC,
-        "version": "7.1.0-dev",
+        "version": MOONLIGHT_API_VERSION,
         "board": "esp32",
         "chip": "esp32",
         "firmware": "firmware-esp32",
@@ -40,6 +41,44 @@ def state() -> dict[str, Any]:
                 "role": "generic",
                 "enabled": True,
                 "controls": [
+                    {"name": "display", "type": "display", "value": "MoonLight", "readonly": True, "displayStrip": True},
+                    {"name": "switch1", "type": "bool", "value": True, "switchRow": True, "target": "Drivers.on"},
+                    {"name": "switch2", "type": "bool", "value": False, "switchRow": True},
+                    {
+                        "name": "encoder1",
+                        "type": "uint8",
+                        "value": 0,
+                        "min": 0,
+                        "max": 255,
+                        "encoder": True,
+                        "target": "Drivers.palette",
+                    },
+                    {
+                        "name": "encoder2",
+                        "type": "uint8",
+                        "value": 10,
+                        "min": 0,
+                        "max": 255,
+                        "encoder": True,
+                    },
+                    {
+                        "name": "fader1",
+                        "type": "uint8",
+                        "value": 128,
+                        "min": 0,
+                        "max": 255,
+                        "fader": True,
+                        "target": "Drivers.brightness",
+                    },
+                    {
+                        "name": "fader2",
+                        "type": "uint8",
+                        "value": 40,
+                        "min": 0,
+                        "max": 255,
+                        "fader": True,
+                        "target": "Pulse.speed",
+                    },
                     {
                         "name": "presets",
                         "type": "list",
@@ -47,7 +86,7 @@ def state() -> dict[str, Any]:
                             {"id": 1, "name": "Rainbow", "roles": ["effects"], "active": True},
                             {"id": 2, "name": "Pins", "roles": ["driver"], "active": False},
                         ],
-                    }
+                    },
                 ],
             },
             {
@@ -165,8 +204,8 @@ def patch_websocket(monkeypatch: pytest.MonkeyPatch, moonlight_ws: FakeWebSocket
     monkeypatch.setattr(MoonLightClient, "ws_connect", _connect)
 
 
-def mock_device(aioclient_mock, *, host: str = HOST, port: int = PORT, system_body: dict | None = None, state_body: dict | None = None) -> None:
+def mock_device(aioclient_mock, *, host: str = HOST, port: int = PORT, scheme: str = "http", system_body: dict | None = None, state_body: dict | None = None) -> None:
     """Stub the two reads setup performs."""
-    base = f"http://{host}:{port}"
+    base = f"{scheme}://{host}:{port}"
     aioclient_mock.get(f"{base}/api/system", json=deepcopy(system_body if system_body is not None else system()))
     aioclient_mock.get(f"{base}/api/state", json=deepcopy(state_body if state_body is not None else state()))

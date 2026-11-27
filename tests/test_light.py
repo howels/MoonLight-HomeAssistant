@@ -1,63 +1,69 @@
-"""The light is Drivers' on and brightness. Looks are effect presets only."""
+"""The light is the desk's first channel. Looks stay on Control."""
 
 import pytest
+from custom_components.moonlight.const import DOMAIN
 from homeassistant.components.light import ATTR_EFFECT
 from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 
+from .conftest import MAC
 from .test_init import _setup
 
+LIGHT = "light.mm_abcd_control_light"
 
-async def test_light_reads_drivers(hass, aioclient_mock) -> None:
-    """On and brightness come from the Drivers card."""
+
+async def test_light_reads_the_desk(hass, aioclient_mock) -> None:
+    """switch1 is power, fader1 is brightness, encoder1 selects the palette."""
     await _setup(hass, aioclient_mock)
-    state = hass.states.get("light.mm_abcd_drivers_light")
+    state = hass.states.get(LIGHT)
     assert state.state == "on"
     assert state.attributes["brightness"] == 128
     assert state.attributes["effect"] == "Rainbow"
-    assert state.attributes["effect_list"] == ["Rainbow"]
+    assert state.attributes["effect_list"] == ["Rainbow", "Party"]
 
 
-async def test_turn_off_writes_drivers_on(hass, aioclient_mock, moonlight_ws) -> None:
-    """Turning the light off clears Drivers on and leaves brightness."""
+async def test_turn_off_writes_switch1(hass, aioclient_mock, moonlight_ws) -> None:
+    """Turning the light off clears switch1 and leaves the fader."""
     await _setup(hass, aioclient_mock)
     await hass.services.async_call(
-        LIGHT_DOMAIN, "turn_off", {ATTR_ENTITY_ID: "light.mm_abcd_drivers_light"}, blocking=True
+        LIGHT_DOMAIN, "turn_off", {ATTR_ENTITY_ID: LIGHT}, blocking=True
     )
-    assert {"module": "Drivers", "control": "on", "value": False} in moonlight_ws.sent
-    assert hass.states.get("light.mm_abcd_drivers_light").state == "off"
+    assert {"module": "Control", "control": "switch1", "value": False} in moonlight_ws.sent
+    assert hass.states.get(LIGHT).state == "off"
 
 
-async def test_effect_writes_brightness_before_the_tree_is_read(hass, aioclient_mock, moonlight_ws) -> None:
-    """The resync document must not arrive before brightness and on."""
+async def test_effect_writes_the_encoder_then_the_fader_then_power(hass, aioclient_mock, moonlight_ws) -> None:
+    """A palette is encoder1's index. Brightness and power follow it."""
     await _setup(hass, aioclient_mock)
-    aioclient_mock.post("http://192.0.2.10:80/api/list/Control/presets/1/apply", json={"ok": True})
     await hass.services.async_call(
         LIGHT_DOMAIN,
         "turn_on",
-        {
-            ATTR_ENTITY_ID: "light.mm_abcd_drivers_light",
-            ATTR_EFFECT: "Rainbow",
-            "brightness": 10,
-        },
+        {ATTR_ENTITY_ID: LIGHT, ATTR_EFFECT: "Party", "brightness": 10},
         blocking=True,
     )
-    frames = [item for item in moonlight_ws.sent if isinstance(item, dict)]
-    brightness = next(index for index, frame in enumerate(frames) if frame.get("control") == "brightness")
-    on = next(index for index, frame in enumerate(frames) if frame.get("control") == "on" and frame.get("value") is True)
-    resync = next(index for index, frame in enumerate(frames) if "resync" in frame)
-    assert brightness < on < resync
+    frames = [item for item in moonlight_ws.sent if isinstance(item, dict) and item.get("module") == "Control"]
+    encoder = next(index for index, frame in enumerate(frames) if frame.get("control") == "encoder1")
+    fader = next(index for index, frame in enumerate(frames) if frame.get("control") == "fader1")
+    power = next(
+        index
+        for index, frame in enumerate(frames)
+        if frame.get("control") == "switch1" and frame.get("value") is True
+    )
+    assert encoder < fader < power
+    assert frames[encoder]["value"] == 1
+    assert frames[fader]["value"] == 10
 
 
-async def test_unknown_effect_names_the_look(hass, aioclient_mock) -> None:
-    """A look the device does not have fails with that name."""
+async def test_unknown_palette_names_it(hass, aioclient_mock) -> None:
+    """A palette the device does not have fails with that name."""
     await _setup(hass, aioclient_mock)
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
             LIGHT_DOMAIN,
             "turn_on",
-            {ATTR_ENTITY_ID: "light.mm_abcd_drivers_light", ATTR_EFFECT: "Missing"},
+            {ATTR_ENTITY_ID: LIGHT, ATTR_EFFECT: "Missing"},
             blocking=True,
         )
 
@@ -75,4 +81,17 @@ async def test_look_select_is_on_control(hass, aioclient_mock, moonlight_ws) -> 
         {ATTR_ENTITY_ID: "select.mm_abcd_control_look", "option": "Rainbow"},
         blocking=True,
     )
+    assert any(item.get("resync") for item in moonlight_ws.sent if isinstance(item, dict))
+
+
+async def test_a_filled_pad_is_a_button(hass, aioclient_mock, moonlight_ws) -> None:
+    """One button per effect look, in slot order. A driver preset is not a pad."""
+    await _setup(hass, aioclient_mock)
+    registry = er.async_get(hass)
+    pad = registry.async_get_entity_id("button", DOMAIN, f"{MAC}_pad_1")
+    assert pad is not None
+    assert hass.states.get(pad).name.endswith("Rainbow")
+    assert registry.async_get_entity_id("button", DOMAIN, f"{MAC}_pad_2") is None
+    aioclient_mock.post("http://192.0.2.10:80/api/list/Control/presets/1/apply", json={"ok": True})
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: pad}, blocking=True)
     assert any(item.get("resync") for item in moonlight_ws.sent if isinstance(item, dict))

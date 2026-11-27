@@ -32,14 +32,19 @@ def host_for_url(host: str) -> str:
 class MoonLightClient:
     """One device, reached through Home Assistant's shared aiohttp session."""
 
-    def __init__(self, session: aiohttp.ClientSession, host: str, port: int) -> None:
-        """Store the address. The session outlives this client."""
+    def __init__(self, session: aiohttp.ClientSession, host: str, port: int, *, tls: bool = False) -> None:
+        """Store the address. The session outlives this client.
+
+        `tls` selects `https` and `wss`. An entry added before TLS was stored leaves it false.
+        """
         self._session = session
         self.host = host
         self.port = port
+        self.tls = tls
 
     def _url(self, path: str) -> str:
-        return f"http://{host_for_url(self.host)}:{self.port}{path}"
+        scheme = "https" if self.tls else "http"
+        return f"{scheme}://{host_for_url(self.host)}:{self.port}{path}"
 
     async def _async_request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         """Perform one HTTP call and return the JSON body.
@@ -115,8 +120,9 @@ class MoonLightClient:
     async def ws_connect(self, *, heartbeat: float | None) -> aiohttp.ClientWebSocketResponse:
         """Open `/ws`. `heartbeat` is set only when this firmware answers a ping."""
         try:
+            scheme = "wss" if self.tls else "ws"
             return await self._session.ws_connect(
-                f"ws://{host_for_url(self.host)}:{self.port}/ws",
+                f"{scheme}://{host_for_url(self.host)}:{self.port}/ws",
                 heartbeat=heartbeat,
                 timeout=REQUEST_TIMEOUT,
                 max_msg_size=WEBSOCKET_MAX_BYTES,

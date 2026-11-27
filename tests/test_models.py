@@ -1,11 +1,13 @@
 """The tree parser. No Home Assistant, so a mapping mistake fails here."""
 
 import pytest
+from custom_components.moonlight.const import MOONLIGHT_API_VERSION
 from custom_components.moonlight.exceptions import MoonLightResponseError
 from custom_components.moonlight.models import (
     Control,
     apply_patch,
     coerce_value,
+    control_order,
     entity_name,
     entity_platform,
     is_destructive,
@@ -45,13 +47,26 @@ def test_nested_card_name_includes_the_path() -> None:
     assert entity_platform(speed) == "number"
 
 
-def test_drivers_on_is_not_its_own_switch() -> None:
-    """The light owns Drivers on and brightness."""
+def test_the_light_owns_the_first_desk_channel() -> None:
+    """switch1, fader1 and encoder1 are the light. The rest of the desk stays."""
     parsed = parse_tree(state())
     assert parsed is not None
-    _, controls, _, unknown = parsed
-    assert entity_platform(controls[("Drivers", "on")]) is None
-    assert entity_platform(controls[("Drivers", "brightness")]) is None
+    modules, controls, _, unknown = parsed
+    assert entity_platform(controls[("Control", "switch1")]) is None
+    assert entity_platform(controls[("Control", "fader1")]) is None
+    assert entity_platform(controls[("Control", "encoder1")]) is None
+    assert entity_platform(controls[("Drivers", "on")]) == "switch"
+    assert entity_name(modules, controls[("Control", "fader2")]) == "Speed"
+    assert controls[("Control", "switch2")].assigned is False
+    ordered = [
+        control.name
+        for control in sorted(
+            (control for control in controls.values() if control.module == "Control"),
+            key=lambda control: control_order(modules, control),
+        )
+        if control.name in {"display", "switch1", "switch2", "encoder1", "encoder2", "fader1", "fader2"}
+    ]
+    assert ordered == ["display", "switch1", "switch2", "encoder1", "encoder2", "fader1", "fader2"]
     assert "future-widget" in unknown
 
 
@@ -116,7 +131,7 @@ def test_socket_commands_start_at_the_7_release() -> None:
     assert uses_socket_commands("6.0.0") is False
     assert uses_socket_commands("7.0.0-dev.83") is False
     assert uses_socket_commands("7.0.0") is True
-    assert uses_socket_commands("7.1.0-dev") is True
+    assert uses_socket_commands(MOONLIGHT_API_VERSION) is True
     assert uses_socket_commands(None) is False
     assert uses_socket_commands("local") is False
 

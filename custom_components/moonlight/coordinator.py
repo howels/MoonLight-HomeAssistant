@@ -26,9 +26,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import ChildDeviceInfo, DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .client import MoonLightClient
+from .client import MoonLightClient, host_for_url
 from .const import (
     CONF_EXPERT_MODE,
+    CONF_SHOW_OTHER,
+    CONF_TLS,
     DOMAIN,
     HEARTBEAT_SECONDS,
     MANUFACTURER,
@@ -36,6 +38,7 @@ from .const import (
     PRESET_MODULE,
     RETRY_MAX_SECONDS,
     RETRY_MIN_SECONDS,
+    SECTION_OPTIONS,
 )
 from .exceptions import (
     MoonLightCommandError,
@@ -51,6 +54,7 @@ from .models import (
     MoonLightData,
     apply_patch,
     coerce_value,
+    control_order,
     entity_platform,
     is_destructive,
     nav_roots,
@@ -78,7 +82,8 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.config_entry = entry
         self.host: str = entry.data[CONF_HOST]
         self.port: int = entry.data[CONF_PORT]
-        self.client = MoonLightClient(async_get_clientsession(hass), self.host, self.port)
+        self.tls: bool = entry.data.get(CONF_TLS) is True
+        self.client = MoonLightClient(async_get_clientsession(hass), self.host, self.port, tls=self.tls)
         self.mac = ""
         self._ws: Any = None
         self._stop = asyncio.Event()
@@ -201,12 +206,27 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
             return
         await self._async_reload_tree()
 
+    def section_enabled(self, name: str) -> bool:
+        """Control is always shown. Every other side-nav page waits for its option."""
+        if name == "Control":
+            return True
+        key = SECTION_OPTIONS.get(name, CONF_SHOW_OTHER)
+        return self.config_entry.options.get(key) is True
+
     def controls_for(self, platform: str) -> list[Control]:
-        """Controls that belong on one platform, in a stable order."""
-        return sorted(
-            (control for control in self.data.controls.values() if entity_platform(control) == platform),
-            key=lambda control: (control.module, control.name),
-        )
+        """Controls on one platform, in the order the web interface renders them.
+
+        A page whose option is off contributes nothing. The tree is still parsed.
+        """
+        visible: list[Control] = []
+        for control in self.data.controls.values():
+            if entity_platform(control) != platform:
+                continue
+            root = root_module(self.data.modules, control.module)
+            if root is None or not self.section_enabled(root.name):
+                continue
+            visible.append(control)
+        return sorted(visible, key=lambda control: control_order(self.data.modules, control))
 
     def module(self, name: str) -> Module | None:
         """The module with this name, or None after it was removed."""
@@ -237,7 +257,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
                 name=self._device_name(),
                 sw_version=version if isinstance(version, str) else None,
                 hw_version=chip if isinstance(chip, str) else None,
-                configuration_url=f"http://{self.host}:{self.port}/",
+                configuration_url=f"{'https' if self.tls else 'http'}://{host_for_url(self.host)}:{self.port}/",
             )
         root = root_module(self.data.modules, module_name)
         if root is None:
@@ -266,6 +286,8 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.endpoint_device_id = endpoint.id
         alive: set[tuple[str, str]] = set()
         for module in nav_roots(self.data.modules):
+            if not self.section_enabled(module.name):
+                continue
             identifier = (DOMAIN, f"{self.mac}_{module.name}")
             alive.add(identifier)
             registry.async_get_or_create_child(
@@ -369,7 +391,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self._commands_on_socket = uses_socket_commands(self.data.system.get("version"))
 
     async def _async_handle(self, ws: Any, message: Any) -> None:
-        """One inbound frame. A WLED `{state, info}` frame is the shim, and it is ignored."""
+        """One inbound frame. A `{state, info}` compatibility frame is ignored."""
         if message.type != WSMsgType.TEXT:
             if message.type in {WSMsgType.CLOSED, WSMsgType.CLOSING, WSMsgType.ERROR}:
                 detail = "the socket closed"

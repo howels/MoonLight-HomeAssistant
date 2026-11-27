@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: MoonModules/MoonLight
+          path: moonlight
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
@@ -23,6 +27,8 @@ jobs:
       - name: Ruff
         run: ruff check custom_components tests
       - name: Tests
+        env:
+          MOONLIGHT_ROOT: ${{ github.workspace }}/moonlight
         run: pytest --cov=custom_components/moonlight --cov-report=term-missing
 
   hassfest:

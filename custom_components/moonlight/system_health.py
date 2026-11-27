@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.loader import async_get_integration
 
-from .const import DOMAIN
+from .const import DOMAIN, MOONLIGHT_API_VERSION
 
 
 @callback
@@ -19,7 +19,10 @@ def async_register(hass: HomeAssistant, register: system_health.SystemHealthRegi
 async def system_health_info(hass: HomeAssistant) -> dict[str, str]:
     """One row for the integration version, and one row per loaded device."""
     integration = await async_get_integration(hass, DOMAIN)
-    info: dict[str, str] = {"version": str(integration.version)}
+    info: dict[str, str] = {
+        "version": str(integration.version),
+        "api_version": MOONLIGHT_API_VERSION,
+    }
     for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.state is not ConfigEntryState.LOADED:
             info[entry.title] = "not loaded"

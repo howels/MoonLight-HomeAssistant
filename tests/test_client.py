@@ -20,6 +20,13 @@ async def test_refused_control_uses_the_device_reason(hass, aioclient_mock) -> N
         await client.async_set_control("Pulse", "speed", 999)
 
 
+async def test_https_address_is_requested_with_tls(hass, aioclient_mock) -> None:
+    """An https device is read at https://, not at http:// on the same port."""
+    aioclient_mock.get(f"https://{HOST}:{PORT}/api/system", json={"name": "MM"})
+    client = MoonLightClient(async_get_clientsession(hass), HOST, PORT, tls=True)
+    assert await client.async_get_system() == {"name": "MM"}
+
+
 async def test_system_without_a_mac_is_still_json(hass, aioclient_mock) -> None:
     """v6 `/api/system` has no MAC. The client returns the body and the tree supplies the MAC."""
     aioclient_mock.get(f"http://{HOST}:{PORT}/api/system", json={"fps": 40})

@@ -11,12 +11,21 @@ MANUFACTURER: Final = "MoonModules"
 
 # A board serves the UI and the API on port 80. MoonLight running on a computer uses 8080.
 DEFAULT_PORT: Final = 80
+# An https URL with no port uses 443. The port field replaces either default.
+HTTPS_PORT: Final = 443
+
+# True when the address the user entered was https or wss. Absent on an older entry, which stays on http.
+CONF_TLS: Final = "tls"
 
 # How long one HTTP call may take. A live WebSocket is the steady state; this bounds connect and a command.
 REQUEST_TIMEOUT: Final = 10
 
 # aiohttp pings at this interval. Current firmware answers. v6.0.0 ignores the ping and the socket would drop, so that generation connects without a heartbeat.
 HEARTBEAT_SECONDS: Final = 20.0
+
+# `info.version` of MoonLight's docs/reference/openapi.yaml. The API tests refuse a tree
+# whose document carries another version. Bump this when that document moves.
+MOONLIGHT_API_VERSION: Final = "7.1.0-dev"
 
 # Socket control writes, list apply and resync shipped in the v7.0.0 release. A 7.0.0-dev build compares below this and stays on HTTP.
 SOCKET_COMMANDS_VERSION: Final = "7.0.0"
@@ -50,8 +59,35 @@ NAV_GROUPS: Final[tuple[tuple[str, ...], ...]] = (
 # Joins a nested card's path. "Layer · Pulse · Speed" is the Effects page, the Layer card, the Pulse card.
 PATH_MARK: Final = " · "
 
-# The light owns these two. They are not also a switch and a number.
-LIGHT_CONTROLS: Final = frozenset({("Drivers", "on"), ("Drivers", "brightness")})
+# The light owns the desk's first channel. switch1 is power, fader1 is brightness, encoder1 is the palette.
+# They are not also a switch, a number and a number.
+LIGHT_CONTROLS: Final = frozenset(
+    {("Control", "switch1"), ("Control", "fader1"), ("Control", "encoder1")}
+)
+
+# Off until the options flow turns a page on. Control is always shown and is not in this map.
+CONF_SHOW_LAYOUTS: Final = "show_layouts"
+CONF_SHOW_EFFECTS: Final = "show_effects"
+CONF_SHOW_DRIVERS: Final = "show_drivers"
+CONF_SHOW_SYSTEM: Final = "show_system"
+CONF_SHOW_FILES: Final = "show_files"
+CONF_SHOW_NETWORK: Final = "show_network"
+CONF_SHOW_DEVICES: Final = "show_devices"
+CONF_SHOW_SERVICES: Final = "show_services"
+CONF_SHOW_FIRMWARE: Final = "show_firmware"
+CONF_SHOW_OTHER: Final = "show_other"
+
+SECTION_OPTIONS: Final[dict[str, str]] = {
+    "Layouts": CONF_SHOW_LAYOUTS,
+    "Effects": CONF_SHOW_EFFECTS,
+    "Drivers": CONF_SHOW_DRIVERS,
+    "System": CONF_SHOW_SYSTEM,
+    "File Manager": CONF_SHOW_FILES,
+    "Network": CONF_SHOW_NETWORK,
+    "Devices": CONF_SHOW_DEVICES,
+    "Services": CONF_SHOW_SERVICES,
+    "Firmware": CONF_SHOW_FIRMWARE,
+}
 
 # The preset list that holds looks. Rows whose only role is effects become the light's effect list.
 PRESET_MODULE: Final = "Control"

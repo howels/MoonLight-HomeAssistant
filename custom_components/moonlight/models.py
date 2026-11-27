@@ -29,6 +29,7 @@ from .const import (
 from .exceptions import MoonLightResponseError
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_SLOT = re.compile(r"^(switch|encoder|fader)(\d+)$")
 IPV4_ADDRESS = re.compile(
     r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
 )
@@ -41,6 +42,9 @@ def humanise(name: str) -> str:
     """Turn a control name such as `multiplyX` into `Multiply X`."""
     if name.startswith("@") and len(name) > 1:
         name = name[1:]
+    slot = _SLOT.fullmatch(name)
+    if slot:
+        return f"{slot.group(1).capitalize()} {slot.group(2)}"
     spaced = _CAMEL.sub(" ", name).replace("_", " ").strip()
     if not spaced:
         return name
@@ -66,6 +70,21 @@ class Control:
     number_field: bool = False
     confirm: bool = False
     synthetic: bool = False
+    ordinal: int = 0
+    target: str | None = None
+    fader: bool = False
+    encoder: bool = False
+    switch_row: bool = False
+
+    @property
+    def surface(self) -> bool:
+        """A desk slot: a switch, an encoder or a fader."""
+        return self.fader or self.encoder or self.switch_row
+
+    @property
+    def assigned(self) -> bool:
+        """A desk slot with nothing to drive is not a control yet. Anything else is."""
+        return not self.surface or bool(self.target)
 
     @property
     def value_is_index(self) -> bool:
@@ -175,26 +194,55 @@ def card_path(modules: dict[str, Module], name: str) -> tuple[str, ...]:
     return tuple(chain)
 
 
+def _target_label(target: str) -> str | None:
+    """`Module.control` as the control's label. `enabled` is named by the module."""
+    module, dot, name = target.partition(".")
+    if not dot or not name:
+        return None
+    if name == "enabled":
+        return humanise(module)
+    return humanise(name)
+
+
 def entity_name(modules: dict[str, Module], control: Control) -> str:
-    """The control's label, preceded by the nested cards it sits on."""
-    label = humanise(control.name)
+    """The control's label, preceded by the nested cards it sits on.
+
+    A desk slot is named by what it drives, which changes when the desk reassigns the slot.
+    """
+    label = _target_label(control.target) if control.target else None
+    if not label:
+        label = humanise(control.name)
     path = card_path(modules, control.module)
     if not path:
         return label
     return PATH_MARK.join((*path, label))
 
 
+def nav_sort_key(module: Module) -> tuple[int, int, int]:
+    """Side-nav order. A root the nav does not name sorts after the named groups."""
+    for group_index, group in enumerate(NAV_GROUPS):
+        if module.name in group:
+            return (group_index, group.index(module.name), module.ordinal)
+    return (len(NAV_GROUPS), module.ordinal, 0)
+
+
+def control_order(modules: dict[str, Module], control: Control) -> tuple[int, ...]:
+    """Document order inside a module, and side-nav order between modules.
+
+    The Control card declares display, switches, encoders, then faders. That declaration
+    order is the order the web interface renders.
+    """
+    root = root_module(modules, control.module)
+    group = nav_sort_key(root) if root is not None else (len(NAV_GROUPS), 0, 0)
+    module = modules.get(control.module)
+    module_ordinal = module.ordinal if module is not None else 0
+    return (*group, module_ordinal, control.ordinal)
+
+
 def nav_roots(modules: dict[str, Module]) -> list[Module]:
     """Root modules in side-nav order. A root the nav does not name follows, in tree order."""
     roots = [module for module in modules.values() if module.parent is None]
-
-    def sort_key(module: Module) -> tuple[int, int, int]:
-        for group_index, group in enumerate(NAV_GROUPS):
-            if module.name in group:
-                return (group_index, group.index(module.name), module.ordinal)
-        return (len(NAV_GROUPS), module.ordinal, 0)
-
-    return sorted(roots, key=sort_key)
+    return sorted(roots, key=nav_sort_key)
 
 
 def is_destructive(control: Control) -> bool:
@@ -297,7 +345,7 @@ def _optional_int(raw: Any) -> int | None:
     return int(raw)
 
 
-def parse_control(module: str, raw: Any) -> Control | None:
+def parse_control(module: str, raw: Any, ordinal: int = 0) -> Control | None:
     """One control object from the state document, or None when it has no name and type."""
     if not isinstance(raw, dict):
         return None
@@ -305,6 +353,7 @@ def parse_control(module: str, raw: Any) -> Control | None:
     ctype = raw.get("type")
     if not isinstance(name, str) or not name or not isinstance(ctype, str) or not ctype:
         return None
+    target = raw.get("target")
     return Control(
         module=module,
         name=name,
@@ -320,6 +369,11 @@ def parse_control(module: str, raw: Any) -> Control | None:
         total=_optional_int(raw.get("total")),
         number_field=raw.get("numberField") is True,
         confirm=raw.get("confirm") is True,
+        ordinal=ordinal,
+        target=target if isinstance(target, str) and target else None,
+        fader=raw.get("fader") is True,
+        encoder=raw.get("encoder") is True,
+        switch_row=raw.get("switchRow") is True,
     )
 
 
@@ -393,8 +447,8 @@ def _walk(
     )
     raw_controls = node.get("controls")
     if isinstance(raw_controls, list):
-        for item in raw_controls:
-            control = parse_control(name, item)
+        for index, item in enumerate(raw_controls):
+            control = parse_control(name, item, index)
             if control is None:
                 continue
             if not _known_type(control) and not control.hidden and control.key not in LIGHT_CONTROLS:
@@ -407,6 +461,7 @@ def _walk(
             type="bool",
             value=node.get("enabled") is not False,
             synthetic=True,
+            ordinal=10_000,
         )
     if status is not None:
         controls[(name, "@status")] = Control(
@@ -415,6 +470,7 @@ def _walk(
             type="display",
             value=status,
             readonly=True,
+            ordinal=10_001,
         )
     for index, child in enumerate(node.get("children") or []):
         _walk(child, name, index, modules, controls, unknown)

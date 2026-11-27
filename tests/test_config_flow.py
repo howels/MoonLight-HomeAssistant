@@ -50,13 +50,29 @@ async def test_user_reports_a_host_that_is_not_moonlight(hass, aioclient_mock) -
     assert result["errors"]["base"] == "invalid_response"
 
 
-async def test_https_is_rejected_before_a_connection(hass) -> None:
-    """An https URL never opens a socket."""
+async def test_https_url_uses_port_443(hass, aioclient_mock) -> None:
+    """An https URL with a blank port field connects on 443 with TLS."""
+    mock_device(aioclient_mock, port=443, scheme="https")
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_HOST: "https://192.0.2.10", CONF_PORT: PORT}
+        result["flow_id"], {CONF_HOST: "https://192.0.2.10"}
     )
-    assert result["errors"]["base"] == "tls_unsupported"
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].data[CONF_HOST] == HOST
+    assert result["result"].data[CONF_PORT] == 443
+    assert result["result"].data["tls"] is True
+
+
+async def test_port_field_replaces_the_https_default(hass, aioclient_mock) -> None:
+    """The port field replaces 443, and the https scheme still selects TLS."""
+    mock_device(aioclient_mock, host="moonlight.local", port=8443, scheme="https")
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HOST: "https://moonlight.local", CONF_PORT: 8443}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].data[CONF_PORT] == 8443
+    assert result["result"].data["tls"] is True
 
 
 async def test_already_configured_updates_the_address(hass, aioclient_mock) -> None:
@@ -126,10 +142,41 @@ async def test_expert_mode_is_an_option(hass, aioclient_mock) -> None:
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"expert_mode": True}
+        result["flow_id"],
+        {
+            "show_layouts": False,
+            "show_effects": True,
+            "show_drivers": False,
+            "show_system": False,
+            "show_files": False,
+            "show_network": False,
+            "show_devices": False,
+            "show_services": False,
+            "show_firmware": False,
+            "show_other": False,
+            "expert_mode": True,
+        },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options["expert_mode"] is True
+    assert entry.options["show_effects"] is True
+    assert entry.options["show_system"] is False
+
+
+async def test_wled_discovery_warns_before_adding(hass, aioclient_mock) -> None:
+    """A board also advertises the service the WLED integration browses."""
+    mock_device(aioclient_mock)
+    wled = MockConfigEntry(domain="wled", data={CONF_HOST: HOST, CONF_PORT: 80}, unique_id=MAC)
+    wled.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HOST: HOST, CONF_PORT: PORT}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "wled"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == MAC
 
 
 async def test_reconfigure_rejects_a_different_device(hass, aioclient_mock) -> None:

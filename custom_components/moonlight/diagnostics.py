@@ -10,7 +10,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .const import NAV_GROUPS
+from .const import MOONLIGHT_API_VERSION, NAV_GROUPS
 from .coordinator import MoonLightConfigEntry
 from .models import nav_roots
 
@@ -28,6 +28,7 @@ async def async_get_config_entry_diagnostics(
             "port": coordinator.port,
             "unique_id": entry.unique_id,
         },
+        "api_version": MOONLIGHT_API_VERSION,
         "connected": data.connected,
         "last_error": data.last_error,
         "system": {

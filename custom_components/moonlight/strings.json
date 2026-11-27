@@ -4,31 +4,41 @@
     "step": {
       "user": {
         "title": "Add a MoonLight device",
-        "description": "The device's address. A board serves on port 80. MoonLight running on a computer serves on port 8080.",
+        "description": "A host name, an address, or an http:// or https:// URL with no path. Leave the port blank to use 80, or 443 when the URL is https. A number in the port field replaces that port.",
         "data": {
           "host": "Host",
           "port": "Port"
+        },
+        "data_description": {
+          "host": "moonlight.local, http://moonlight.local or https://moonlight.local",
+          "port": "Replaces the port from the URL. Blank uses 80, or 443 for https."
         }
       },
       "zeroconf_confirm": {
         "title": "MoonLight device found",
         "description": "Add {name} to Home Assistant?"
       },
+      "wled": {
+        "title": "WLED already discovered this device",
+        "description": "Home Assistant's WLED integration also finds {host}, because the board advertises _wled._tcp. Adding MoonLight as well creates a second light. Ignore that WLED discovery, or remove the WLED entry, when this device should be MoonLight only."
+      },
       "reconfigure": {
         "title": "Update the address",
-        "description": "The device's address. The MAC must be the device this entry already is.",
+        "description": "A host name, an address, or an http:// or https:// URL with no path. The MAC must be the device this entry already is. Leave the port blank to use 80, or 443 when the URL is https.",
         "data": {
           "host": "Host",
           "port": "Port"
+        },
+        "data_description": {
+          "port": "Replaces the port from the URL. Blank uses 80, or 443 for https."
         }
       }
     },
     "error": {
       "cannot_connect": "MoonLight did not answer. Check the host and port, and that the device is on.",
       "invalid_response": "The host answered, but not with MoonLight's API. A board uses port 80. A computer uses port 8080.",
-      "invalid_host": "Enter a host name or an address, or an http:// URL with no path.",
+      "invalid_host": "Enter a host name, an address, or an http:// or https:// URL with no path.",
       "invalid_port": "The port must be from 1 to 65535.",
-      "tls_unsupported": "MoonLight serves HTTP on the local network. An https:// address cannot be used.",
       "unknown": "MoonLight could not be read. The log has the reason."
     },
     "abort": {
@@ -37,7 +47,6 @@
       "invalid_response": "The host answered, but not with MoonLight's API.",
       "invalid_host": "The discovered address is not usable.",
       "invalid_port": "The discovered port is not usable.",
-      "tls_unsupported": "MoonLight serves HTTP on the local network.",
       "unknown": "MoonLight could not be read.",
       "wrong_device": "That address is a different MoonLight device. Add it as a new device.",
       "reconfigure_successful": "The address is updated."
@@ -47,9 +56,23 @@
     "step": {
       "init": {
         "title": "MoonLight options",
-        "description": "Expert mode allows factory reset and formatting the SD card. Those buttons stay disabled until you enable each one on the device page.",
+        "description": "Control is always shown. Turn a page on to add its device. System includes factory reset and the settings that can take the device off the network. Expert mode allows factory reset and formatting the SD card. Those buttons stay disabled until you enable each one on the device page.",
         "data": {
+          "show_layouts": "Layouts",
+          "show_effects": "Effects",
+          "show_drivers": "Drivers",
+          "show_system": "System",
+          "show_files": "File Manager",
+          "show_network": "Network",
+          "show_devices": "Devices",
+          "show_services": "Services",
+          "show_firmware": "Firmware",
+          "show_other": "Other modules",
           "expert_mode": "Expert mode"
+        },
+        "data_description": {
+          "show_system": "Includes factory reset, the filesystem, and settings that can take the device off the network.",
+          "expert_mode": "Required before a factory reset or an SD card format. The button must also be enabled on the device page."
         }
       }
     }

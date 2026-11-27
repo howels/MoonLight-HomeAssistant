@@ -41,6 +41,7 @@ class MoonLightEntity(CoordinatorEntity[MoonLightCoordinator]):
         super().__init__(coordinator)
         self._module = module
         self._control = control
+        # `{mac}_{module}_{control}`. A Control slot is what the cards address as `_Control_{control}`.
         self._attr_unique_id = f"{coordinator.mac}_{module}_{control}"
         current = coordinator.control(module, control)
         self._attr_name = entity_name(coordinator.data.modules, current) if current is not None else control
@@ -66,7 +67,13 @@ class MoonLightEntity(CoordinatorEntity[MoonLightCoordinator]):
     @property
     def available(self) -> bool:
         """Unavailable while the socket is down or the control has gone."""
-        return super().available and self.coordinator.connected and self.control is not None
+        control = self.control
+        return (
+            super().available
+            and self.coordinator.connected
+            and control is not None
+            and control.assigned
+        )
 
     async def _async_write(self, value: Any) -> None:
         """Send one value. A refusal is the device's reason, in the user's language file."""

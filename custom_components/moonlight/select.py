@@ -102,6 +102,7 @@ class MoonLightLookSelect(CoordinatorEntity[MoonLightCoordinator], SelectEntity)
     def __init__(self, coordinator: MoonLightCoordinator) -> None:
         """Bind the select to the Control device."""
         super().__init__(coordinator)
+        # `{mac}_look`. The Basic card reads the effect list from this entity.
         self._attr_unique_id = f"{coordinator.mac}_look"
         self._attr_device_info = coordinator.async_device_info(_CONTROL)
 
