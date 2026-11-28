@@ -42,6 +42,7 @@ from .const import (
     RETRY_MAX_SECONDS,
     RETRY_MIN_SECONDS,
     SECTION_OPTIONS,
+    SUBSCRIPTION_NAMES,
 )
 from .exceptions import (
     MoonLightCommandError,
@@ -65,6 +66,7 @@ from .models import (
     rejection,
     require_mac,
     root_module,
+    subscription_frame,
     supplement_system,
     uses_socket_commands,
 )
@@ -100,6 +102,8 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.endpoint_device_id: str | None = None
         # v7.0.0 and later apply {"module","control","value"} on the socket. Older firmware ignores that frame and applies {"ps": slot} instead.
         self._commands_on_socket = False
+        # The subscribe frame last sent on this socket. A full document that names new roots sends again.
+        self._subscription_sent: dict[str, list[str]] | None = None
         # (written value, value before the write, monotonic time). A document still carrying the old one is stale until _HOLD_SECONDS.
         self._held: dict[tuple[str, str], tuple[Any, Any, float]] = {}
 
@@ -227,6 +231,28 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         key = SECTION_OPTIONS.get(name, CONF_SHOW_OTHER)
         return self.config_entry.options.get(key) is True
 
+    def _subscription_frame(self) -> dict[str, list[str]]:
+        """Pages this entry shows. Other modules are named once a document has listed them."""
+        roots = [module.name for module in nav_roots(self.data.modules)] if self.data else []
+        return subscription_frame(self.config_entry.options, roots)
+
+    async def _async_send_subscription(self, ws: Any) -> None:
+        """Send the subscribe frame when it differs from the one this socket already sent."""
+        frame = self._subscription_frame()
+        if frame == self._subscription_sent:
+            return
+        names = len(frame["subscribe"]) + len(frame.get("only", ()))
+        if names > SUBSCRIPTION_NAMES:
+            _LOGGER.warning(
+                "MoonLight at %s:%s is asking for %s modules. This firmware keeps %s names and ignores the rest.",
+                self.host,
+                self.port,
+                names,
+                SUBSCRIPTION_NAMES,
+            )
+        self._subscription_sent = frame
+        await ws.send_json(frame)
+
     def controls_for(self, platform: str) -> list[Control]:
         """Controls on one platform, in the order the web interface renders them.
 
@@ -252,7 +278,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
 
     @property
     def connected(self) -> bool:
-        """True while `/ws` is open. The client has sent `{"subscribe":["*"]}`."""
+        """True while `/ws` is open. The client has sent its subscribe frame."""
         return bool(self.data and self.data.connected)
 
     @callback
@@ -330,7 +356,8 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
             else:
                 self._ws = ws
                 try:
-                    await ws.send_json({"subscribe": ["*"]})
+                    self._subscription_sent = None
+                    await self._async_send_subscription(ws)
                     if not self._commands_on_socket:
                         reported = self.data.system.get("version")
                         _LOGGER.info(
@@ -431,6 +458,7 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
             return
         if isinstance(payload.get("modules"), list):
             self._replace_tree(payload)
+            await self._async_send_subscription(ws)
             return
         if "patch" in payload:
             if apply_patch(self.data, payload.get("patch")):

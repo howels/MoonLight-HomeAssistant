@@ -30,6 +30,9 @@ MOONLIGHT_API_VERSION: Final = "7.1.0-dev"
 # Socket control writes, list apply and resync shipped in the v7.0.0 release. A 7.0.0-dev build compares below this and stays on HTTP.
 SOCKET_COMMANDS_VERSION: Final = "7.0.0"
 
+# Firmware Subscription::kMaxModules. A subscribe frame can name this many modules; the rest are ignored.
+SUBSCRIPTION_NAMES: Final = 8
+
 # Reconnect delay doubles from this floor up to the ceiling.
 RETRY_MIN_SECONDS: Final = 1.0
 RETRY_MAX_SECONDS: Final = 30.0

@@ -32,9 +32,9 @@ async def _setup(hass, aioclient_mock, system_body=None, state_body=None, option
 
 
 async def test_setup_subscribes_and_orders_devices_like_the_nav(hass, aioclient_mock, moonlight_ws) -> None:
-    """The socket subscribes to the whole tree, and the devices are the side-nav roots."""
+    """The socket subscribes to Control, and to Drivers alone so the light can read the palette."""
     entry = await _setup(hass, aioclient_mock)
-    assert {"subscribe": ["*"]} in moonlight_ws.sent
+    assert {"subscribe": ["Control"], "only": ["Drivers"]} in moonlight_ws.sent
     assert moonlight_ws.heartbeat == HEARTBEAT_SECONDS
     assert entry.runtime_data.connected is True
     registry = dr.async_get(hass)
@@ -65,7 +65,9 @@ async def test_older_firmware_keeps_commands_on_http(hass, aioclient_mock, moonl
     older = system()
     older["version"] = "6.0.0"
     entry = await _setup(hass, aioclient_mock, system_body=older, options=PIPELINE)
-    assert {"subscribe": ["*"]} in moonlight_ws.sent
+    assert {
+        "subscribe": ["Control", "Drivers", "Layouts", "Effects", "System"]
+    } in moonlight_ws.sent
     assert moonlight_ws.heartbeat is None
     assert entry.runtime_data._commands_on_socket is False
     aioclient_mock.post(f"http://{HOST}:{PORT}/api/control", json={"ok": True})

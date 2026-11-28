@@ -9,18 +9,22 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from awesomeversion import AwesomeVersion
 
 from .const import (
+    CONF_SHOW_DRIVERS,
+    CONF_SHOW_OTHER,
     LIGHT_CONTROLS,
     NAV_GROUPS,
     NUMBER_TYPES,
     PATH_MARK,
     PRESET_CONTROL,
     PRESET_MODULE,
+    SECTION_OPTIONS,
     SENSOR_TYPES,
     SKIP_TYPES,
     SOCKET_COMMANDS_VERSION,
@@ -277,6 +281,39 @@ def nav_roots(modules: dict[str, Module]) -> list[Module]:
     """Root modules in side-nav order. A root the nav does not name follows, in tree order."""
     roots = [module for module in modules.values() if module.parent is None]
     return sorted(roots, key=nav_sort_key)
+
+
+def subscription_frame(
+    options: Mapping[str, Any], root_names: Sequence[str] = ()
+) -> dict[str, list[str]]:
+    """The `/ws` frame for the pages this entry shows.
+
+    Control is named with its children. Drivers is named alone, so the light can
+    read the palette without the driver cards, and with its children when that
+    page is on. Each other page that is on is named with its children. A root the
+    nav does not list is named when Other modules is on.
+
+    Control and Drivers come first. The firmware keeps eight names and ignores the rest.
+    """
+    with_children = ["Control"]
+    if options.get(CONF_SHOW_DRIVERS) is True:
+        with_children.append("Drivers")
+    for name in (page for group in NAV_GROUPS for page in group):
+        if name in ("Control", "Drivers"):
+            continue
+        key = SECTION_OPTIONS.get(name)
+        if key is not None and options.get(key) is True:
+            with_children.append(name)
+    if options.get(CONF_SHOW_OTHER) is True:
+        named = set(with_children)
+        for name in root_names:
+            if name and name not in named and name not in SECTION_OPTIONS:
+                with_children.append(name)
+                named.add(name)
+    frame: dict[str, list[str]] = {"subscribe": with_children}
+    if options.get(CONF_SHOW_DRIVERS) is not True:
+        frame["only"] = ["Drivers"]
+    return frame
 
 
 def is_destructive(control: Control) -> bool:
