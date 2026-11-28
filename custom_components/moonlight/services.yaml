@@ -49,3 +49,93 @@ apply_look:
       example: Rainbow
       selector:
         text:
+
+add_module:
+  name: Add a module
+  description: Add a module under a parent. The type is the factory name from the device, such as Layer or TextEffect. The device chooses the module's name.
+  fields:
+    device_id:
+      name: Device
+      description: The MoonLight endpoint, or one of its side-nav devices.
+      required: true
+      selector:
+        device:
+          integration: moonlight
+    type:
+      name: Type
+      description: The module type, as the device lists it. Layer, TextEffect, PulseEffect.
+      required: true
+      example: TextEffect
+      selector:
+        text:
+    parent:
+      name: Parent
+      description: The parent module's name. Effects for a new layer, or the layer's name for a new effect.
+      required: true
+      example: Layer
+      selector:
+        text:
+
+remove_module:
+  name: Remove a module
+  description: Remove a module and its children. A layer removes the effects on it.
+  fields:
+    device_id:
+      name: Device
+      description: The MoonLight endpoint, or one of its side-nav devices.
+      required: true
+      selector:
+        device:
+          integration: moonlight
+    module:
+      name: Module
+      description: The module name, as the card is titled.
+      required: true
+      example: Layer-2
+      selector:
+        text:
+
+replace_module:
+  name: Replace a module
+  description: Swap a module for another type in the same slot. The replacement starts from that type's defaults.
+  fields:
+    device_id:
+      name: Device
+      description: The MoonLight endpoint, or one of its side-nav devices.
+      required: true
+      selector:
+        device:
+          integration: moonlight
+    module:
+      name: Module
+      description: The module name, as the card is titled.
+      required: true
+      example: Text
+      selector:
+        text:
+    type:
+      name: Type
+      description: The module type to put in that slot, as the device lists it.
+      required: true
+      example: PulseEffect
+      selector:
+        text:
+
+clear_children:
+  name: Clear a module's children
+  description: Remove the effects on a layer, or the layers under Effects. The module's own controls stay.
+  fields:
+    device_id:
+      name: Device
+      description: The MoonLight endpoint, or one of its side-nav devices.
+      required: true
+      selector:
+        device:
+          integration: moonlight
+    module:
+      name: Module
+      description: The module whose children to remove. Layer, Layer-2.
+      required: true
+      example: Layer-2
+      selector:
+        text:

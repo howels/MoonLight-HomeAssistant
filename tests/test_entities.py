@@ -22,12 +22,30 @@ async def test_nested_controls_use_the_card_path(hass, aioclient_mock) -> None:
     assert speed is not None
     assert hass.states.get(speed).state == "60.0"
     assert hass.states.get(speed).name.endswith("Layer · Pulse · Speed") or "Layer" in hass.states.get(speed).name
+    assert hass.states.get(speed).attributes["path"] == "Layer · Pulse"
+    assert hass.states.get(speed).attributes["ordinal"] == 0
+    assert hass.states.get(speed).attributes["kind"] == "uint8"
+    assert hass.states.get(speed).attributes["module_type"] == "PulseEffect"
+    note = _entity_id(hass, "text", f"{MAC}_Pulse_note")
+    assert hass.states.get(note).attributes["kind"] == "text"
+    opacity = _entity_id(hass, "number", f"{MAC}_Layer_opacity")
+    assert hass.states.get(opacity).attributes["path"] == "Layer"
+    assert hass.states.get(opacity).attributes["place"] == 0
     mirror = _entity_id(hass, "switch", f"{MAC}_Pulse_mirror")
     assert hass.states.get(mirror).state == "off"
     waveform = _entity_id(hass, "select", f"{MAC}_Pulse_waveform")
     assert hass.states.get(waveform).state == "sin"
     note = _entity_id(hass, "text", f"{MAC}_Pulse_note")
     assert hass.states.get(note).state == "hello"
+    catalog = _entity_id(hass, "sensor", f"{MAC}_effect_types")
+    assert catalog is not None
+    assert hass.states.get(catalog).state == "3"
+    offered = hass.states.get(catalog).attributes["effect_types"]
+    assert {"type": "TextEffect", "name": "Text", "role": "effect"} in offered
+    assert {"type": "MirrorModifier", "name": "Mirror", "role": "modifier"} in offered
+    assert hass.states.get(catalog).attributes["layer_type"] == "Layer"
+    assert hass.states.get(catalog).attributes["defaults"]["Layer"]["opacity"] == 255
+    assert hass.states.get(catalog).attributes["defaults"]["TextEffect"]["speed"] == 30
     width = _entity_id(hass, "number", f"{MAC}_Grid_width")
     assert hass.states.get(width).attributes["friendly_name"].endswith("Grid · Width")
 

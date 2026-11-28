@@ -218,8 +218,29 @@ def patch_websocket(monkeypatch: pytest.MonkeyPatch, moonlight_ws: FakeWebSocket
     monkeypatch.setattr(MoonLightClient, "ws_connect", _connect)
 
 
+def types() -> dict[str, Any]:
+    """`GET /api/types` for the fixture. The Effects card offers these names."""
+    return {
+        "types": [
+            {"name": "Effects", "displayName": "Effects", "role": "generic", "acceptsChildRoles": "layer"},
+            {
+                "name": "Layer",
+                "displayName": "Layer",
+                "role": "layer",
+                "acceptsChildRoles": "effect,modifier",
+                "defaults": {"blendMode": 1, "opacity": 255},
+            },
+            {"name": "PulseEffect", "displayName": "Pulse", "role": "effect", "defaults": {"speed": 60}},
+            {"name": "TextEffect", "displayName": "Text", "role": "effect", "defaults": {"text": "MoonLight", "speed": 30}},
+            {"name": "RainbowEffect", "displayName": "Rainbow", "role": "effect"},
+            {"name": "MirrorModifier", "displayName": "Mirror", "role": "modifier"},
+        ]
+    }
+
+
 def mock_device(aioclient_mock, *, host: str = HOST, port: int = PORT, scheme: str = "http", system_body: dict | None = None, state_body: dict | None = None) -> None:
-    """Stub the two reads setup performs."""
+    """Stub the reads setup performs."""
     base = f"{scheme}://{host}:{port}"
     aioclient_mock.get(f"{base}/api/system", json=deepcopy(system_body if system_body is not None else system()))
     aioclient_mock.get(f"{base}/api/state", json=deepcopy(state_body if state_body is not None else state()))
+    aioclient_mock.get(f"{base}/api/types", json=deepcopy(types()))

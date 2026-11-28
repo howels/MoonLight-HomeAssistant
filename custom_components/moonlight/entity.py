@@ -16,7 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, PATH_MARK
 from .coordinator import MoonLightConfigEntry, MoonLightCoordinator
 from .exceptions import (
     MoonLightCommandError,
@@ -25,7 +25,7 @@ from .exceptions import (
     MoonLightExpertError,
     MoonLightResponseError,
 )
-from .models import Control, entity_name, is_destructive
+from .models import Control, card_path, entity_name, is_destructive
 
 # Expert and developer controls exist, and they start disabled so the device page stays readable.
 _MODE_USER = 0
@@ -60,9 +60,38 @@ class MoonLightEntity(CoordinatorEntity[MoonLightCoordinator]):
         super()._handle_coordinator_update()
 
     @property
-    def extra_state_attributes(self) -> dict[str, str]:
-        """`module` and `control` are how a card finds this entity. The registry does not send the unique id."""
-        return {"module": self._module, "control": self._control}
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """`module` and `control` are how a card finds this entity. The registry does not send the unique id.
+
+        `path` is the cards above this control, which is how the Effects card groups a layer.
+        `ordinal` is the control's place on its card. `place` is that card's place under its parent.
+        `kind` is the MoonLight control type, so a textarea is not drawn as one line.
+        `module_type` is the module's factory type, which is how a reset finds that control's default.
+        """
+        current = self.control
+        path = ""
+        ordinal = 0
+        place = 0
+        kind = ""
+        module_type = ""
+        data = self.coordinator.data
+        if current is not None and data is not None:
+            path = PATH_MARK.join(card_path(data.modules, current.module))
+            ordinal = current.ordinal
+            kind = current.type
+            module = data.modules.get(current.module)
+            if module is not None:
+                place = module.ordinal
+                module_type = module.type
+        return {
+            "module": self._module,
+            "control": self._control,
+            "path": path,
+            "ordinal": ordinal,
+            "place": place,
+            "kind": kind,
+            "module_type": module_type,
+        }
 
     @property
     def control(self) -> Control | None:

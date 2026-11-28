@@ -104,6 +104,9 @@
     },
     "value_not_scalar": {
       "message": "The value must be a JSON number, bool or string."
+    },
+    "module_change_failed": {
+      "message": "MoonLight refused to {action} {name}: {error}."
     }
   },
   "entity": {
@@ -144,6 +147,54 @@
         "look": {
           "name": "Look",
           "description": "The look's name, as the Control card lists it."
+        }
+      }
+    },
+    "add_module": {
+      "name": "Add a module",
+      "description": "Add a module under a parent. The device names it.",
+      "fields": {
+        "type": {
+          "name": "Type",
+          "description": "The module type, as the device lists it."
+        },
+        "parent": {
+          "name": "Parent",
+          "description": "The parent module's name."
+        }
+      }
+    },
+    "remove_module": {
+      "name": "Remove a module",
+      "description": "Remove a module and its children.",
+      "fields": {
+        "module": {
+          "name": "Module",
+          "description": "The module name, as the card is titled."
+        }
+      }
+    },
+    "replace_module": {
+      "name": "Replace a module",
+      "description": "Swap a module for another type in the same slot.",
+      "fields": {
+        "module": {
+          "name": "Module",
+          "description": "The module name, as the card is titled."
+        },
+        "type": {
+          "name": "Type",
+          "description": "The module type to put in that slot."
+        }
+      }
+    },
+    "clear_children": {
+      "name": "Clear a module's children",
+      "description": "Remove the children of a module and keep its own controls.",
+      "fields": {
+        "module": {
+          "name": "Module",
+          "description": "The module whose children to remove."
         }
       }
     }

@@ -104,6 +104,10 @@ SKIP_TYPES: Final = frozenset({"password", "list"})
 
 SERVICE_SET_CONTROL: Final = "set_control"
 SERVICE_APPLY_LOOK: Final = "apply_look"
+SERVICE_ADD_MODULE: Final = "add_module"
+SERVICE_REMOVE_MODULE: Final = "remove_module"
+SERVICE_REPLACE_MODULE: Final = "replace_module"
+SERVICE_CLEAR_CHILDREN: Final = "clear_children"
 
 # Off unless the user turns it on. Factory reset and SD card format also stay disabled entities.
 CONF_EXPERT_MODE: Final = "expert_mode"
@@ -112,3 +116,5 @@ ATTR_MODULE: Final = "module"
 ATTR_CONTROL: Final = "control"
 ATTR_VALUE: Final = "value"
 ATTR_LOOK: Final = "look"
+ATTR_TYPE: Final = "type"
+ATTR_PARENT: Final = "parent"

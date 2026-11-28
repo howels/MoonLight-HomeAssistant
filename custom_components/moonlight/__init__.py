@@ -22,7 +22,7 @@ _CARD_URL = "/moonlight/moonlight-cards.js"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Register the actions and the two Lovelace cards."""
+    """Register the actions and the Lovelace cards."""
     async_setup_services(hass)
     if not await _async_register_cards(hass):
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_register_on_start)
@@ -35,7 +35,7 @@ async def _async_register_on_start(event: Event) -> None:
 
 
 async def _async_register_cards(hass: HomeAssistant) -> bool:
-    """Serve the Basic and Pro cards, and ask the frontend to load them.
+    """Serve the Basic, Pro and Effects cards, and ask the frontend to load them.
 
     False when the HTTP server or the frontend is not ready yet.
     """

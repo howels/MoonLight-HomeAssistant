@@ -57,7 +57,7 @@ The Look select on the Control device applies a look, which is where the web int
 
 ## Lovelace cards
 
-`www/moonlight-cards.js` is the file Home Assistant loads, from `/moonlight/moonlight-cards.js`. Both cards are given the Control light. The visual editor is the built-in form. Its entity field is labelled MoonLight light and lists only lights from this integration, one per device. The cards read the rest of that light's device from state attributes. Home Assistant's entity registry does not include the unique id.
+`www/moonlight-cards.js` is the file Home Assistant loads, from `/moonlight/moonlight-cards.js`. Each card is given the Control light. The visual editor is the built-in form. Its entity field is labelled MoonLight light and lists only lights from this integration, one per device. Basic and Pro read that light's device. Effects reads the Effects device of the same endpoint. Home Assistant's entity registry does not include the unique id.
 
 | Surface | How the card finds it | Write |
 |---|---|---|
@@ -68,20 +68,23 @@ The Look select on the Control device applies a look, which is where the web int
 | Display strip | `control` `display` | none |
 | Effect list on Basic | attribute `moonlight` `look` | `select.select_option` |
 | Preset pads | attribute `moonlight` `pad`, ordered by `slot` | `button.press` |
+| Effect layer and effect | the Effects device. `path` is the cards above the control, `ordinal` its place, `place` the card's place under its parent, `kind` the MoonLight control type | the entity's own service: `number.set_value`, `switch.turn_on` or `turn_off`, `select.select_option`, `text.set_value`, `button.press`. Add and remove use `moonlight.add_module` and `moonlight.remove_module` |
 
 `set_control` sends the value as a JSON string. `services.py` decodes that string, so `40`, `true` and `"Rainbow"` stay distinct. The device id is one string in that data. The action also accepts the one-item list Home Assistant substitutes when the same field arrives as a service target.
 
 Channel 1 is the light, so that column is always present. A later channel with no entity stays in the row and ignores the pointer, which keeps switch N over encoder N over fader N. An unavailable entity publishes no attributes, so the card treats that slot the same way.
 
-A pointer held on a dial, a fader or the brightness slider sets `_gesture`. The card skips `hass` updates until the pointer is up. Rebuilding the tree during the gesture would replace the control under the finger. When the pointer is up, the card replaces the tree only when the markup changed, so a state update elsewhere in Home Assistant does not redraw the dials.
+A pointer held on a dial, a fader or a slider sets `_gesture`. The card skips `hass` updates until the pointer is up. Rebuilding the tree during the gesture would replace the control under the finger. When the pointer is up, the card replaces the tree only when the markup changed, so a state update elsewhere in Home Assistant does not redraw the dials.
 
-The dial and the sixteen-segment glyphs follow `buildKnob` and `SEG16` in MoonLight's `src/ui/app.js`. A column is 52px and a name is 11px, so Brightness fits the column. The panel is limited to the card width. The desk strip scrolls horizontally and keeps the scrollbar's space, so the card height does not jump and a vertical bar does not take the width. A 500px editor preview fits the eight columns. Basic takes six columns of a section. The Pro card takes the full width. The colours are MoonLight's `:root` tokens. A name on the desk is the control the slot drives. An empty slot keeps `Switch 2`. Preset pads sit under the desk and wrap.
+The dial and the sixteen-segment glyphs follow `buildKnob` and `SEG16` in MoonLight's `src/ui/app.js`. A column is 52px and a name is 11px, so Brightness fits the column. The panel is limited to the card width. The desk strip scrolls horizontally and keeps the scrollbar's space, so the card height does not jump and a vertical bar does not take the width. A 500px editor preview fits the eight columns. Basic takes six columns of a section. The Pro card and the Effects card take the full width. The colours are MoonLight's `:root` tokens. A name on the desk is the control the slot drives. An empty slot keeps `Switch 2`. Preset pads sit under the desk and wrap.
+
+Effects follows the Effects page. The layers are tabs, in the order those modules were added, and the card shows the open layer. The strip scrolls sideways. A disabled layer's tab is dimmed and still opens, so it can be enabled again. `+` at the end of the strip calls `moonlight.add_module` with the layer type under Effects, and the new layer becomes the open tab. Delete on the open layer asks a second time, then calls `moonlight.remove_module`, which removes that tab. The open layer shows its own controls, then one section per effect. A number is a slider. A bool is a pill. A select is a menu. A textarea grows with its lines, and a single line stays one line. `kind` on the entity is the MoonLight control type. `enabled` is the pill in the heading, for the layer and for each effect. Delete on an effect asks a second time and calls `remove_module`. A ↺ on a control writes that type's default from `defaults` on the Effect types sensor. Replace on an effect calls `moonlight.replace_module` and keeps the slot. Clear on a layer asks a second time, then calls `moonlight.clear_children`, which removes the effects and leaves the layer. Add effect is a menu of the effect and modifier types, narrowed by the search line, and calls `add_module` under that layer. The Effect types sensor on the Effects device holds that list, from `GET /api/types`. A device that does not list types leaves the menu empty and the tree still loads. The card finds the Effects device as the sibling of the light's Control device, by the identifier `{mac}_Effects`, and by the name Effects when that identifier is absent. The page option has to be on. With it off there is no Effects device, and the card says so.
 
 ## Connect, then the socket
 
 `client.MoonLightClient` is the only place that builds a URL. An `http` address uses `http` and `ws`. An `https` address uses `https` and `wss`. An entry saved before that flag exists stays on `http`.
 
-Setup calls `GET /api/system` and `GET /api/state`. A connection failure and a body that is not MoonLight's API are different errors, and the config flow shows a different sentence for each. The MAC, from `/api/system` or from `System.mac`, is the config entry's unique id, formatted by Home Assistant.
+Setup calls `GET /api/system`, `GET /api/state` and `GET /api/types`. A connection failure and a body that is not MoonLight's API are different errors, and the config flow shows a different sentence for each. The MAC, from `/api/system` or from `System.mac`, is the config entry's unique id, formatted by Home Assistant.
 
 The background task reads the version again, then opens `ws://<host>:<port>/ws` and sends the subscribe frame on every connection. Control is named with its children. Drivers is named in `only`, so its own controls arrive and its driver cards do not, until the Drivers option names it with its children. Each other page that is on is named with its children. Other modules are added when that option is on and a document has listed them. The current firmware keeps eight names and ignores the rest, so Control and Drivers are named first. v6 ignores the frame and still pushes the tree, because a new socket calls `requestFullResync`. Current firmware sends the tree only after the subscription, and until then it sends a `{state, info}` compatibility frame, which is ignored. The generation is the version, not the first frame. `AwesomeVersion` compares it with `7.0.0`. A `7.0.0-dev` build compares below that release. v7.0.0 and `7.1.0-dev` answer a ping and `{"resync": n}`.
 
@@ -107,9 +110,9 @@ A dropped socket sets `connected` false, logs the reason once per outage, and re
 | `coordinator.py` | The live tree, the socket task, and the devices |
 | `entity.py` | Identity, availability, and adding or removing entities |
 | `config_flow.py` | User, zeroconf, reconfigure, page options, Expert mode. The WLED step runs only when that integration already has this host or MAC, because the board advertises `_wled._tcp` |
-| `www/moonlight-cards.js` | The Basic and Pro Lovelace cards. The attributes they match are under Lovelace cards |
+| `www/moonlight-cards.js` | The Basic, Pro and Effects Lovelace cards. The attributes they match are under Lovelace cards |
 | platform modules | One Home Assistant platform each |
-| `services.py` | `set_control` and `apply_look` |
+| `services.py` | `set_control`, `apply_look`, `add_module`, `remove_module`, `replace_module` and `clear_children` |
 | `diagnostics.py` | The tree shape for a bug report |
 | `system_health.py` | Whether each socket is up |
 

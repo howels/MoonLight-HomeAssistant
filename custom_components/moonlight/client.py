@@ -99,6 +99,42 @@ class MoonLightClient:
             )
         return payload
 
+    async def async_get_types(self) -> list[dict[str, Any]]:
+        """`GET /api/types`, every module type this build can create."""
+        payload = await self._async_request("GET", "/api/types")
+        types = payload.get("types") if isinstance(payload, dict) else None
+        if not isinstance(types, list):
+            raise MoonLightResponseError("/api/types has no types. The device answered, but not with a catalog.")
+        return [item for item in types if isinstance(item, dict)]
+
+    async def async_add_module(self, type_name: str, parent: str) -> str:
+        """`POST /api/modules`. Returns the name the device gave the new module."""
+        payload = await self._async_request(
+            "POST",
+            "/api/modules",
+            {"type": type_name, "parent_id": parent},
+        )
+        name = payload.get("name") if isinstance(payload, dict) else None
+        if not isinstance(name, str) or not name:
+            raise MoonLightResponseError("/api/modules did not return the new module's name.")
+        return name
+
+    async def async_delete_module(self, name: str) -> None:
+        """`DELETE /api/modules/<name>`. The device removes that module and its children."""
+        await self._async_request("DELETE", f"/api/modules/{quote(name, safe='')}")
+
+    async def async_replace_module(self, name: str, type_name: str) -> None:
+        """`POST /api/modules/<name>/replace`. The replacement starts from that type's defaults."""
+        await self._async_request(
+            "POST",
+            f"/api/modules/{quote(name, safe='')}/replace",
+            {"type": type_name},
+        )
+
+    async def async_patch_state(self, document: dict[str, Any]) -> None:
+        """`PATCH /api/state`. A `$patch: replace` with no children removes those children."""
+        await self._async_request("PATCH", "/api/state", document)
+
     async def async_set_control(self, module: str, control: str, value: Any) -> None:
         """`POST /api/control`. Raises `MoonLightCommandError` with the device's reason."""
         await self._async_request(

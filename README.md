@@ -61,11 +61,13 @@ A preset whose role is drivers or layouts is not a look. Applying it would rewir
 
 ## Cards
 
-The integration registers two Lovelace cards. The visual editor lists MoonLight lights only, one for each device. The card reads the display, the other channels, the looks and the pads from that light's device. How it matches them is in [docs/integration.md](docs/integration.md).
+The integration registers three Lovelace cards. The visual editor lists MoonLight lights only, one for each device. Basic and Pro read the Control device of that light. Effects reads the Effects device of the same MoonLight. How a card matches an entity is in [docs/integration.md](docs/integration.md).
 
 Basic, `custom:moonlight-basic-card`, is power, a brightness slider, the palette list and the effect looks.
 
 Pro, `custom:moonlight-pro-card`, is the Control desk. The display strip sits over eight channels. Each channel is a switch, an encoder and a fader. The preset pads sit under the faders.
+
+Effects, `custom:moonlight-effects-card`, is the Effects page. Each layer is a tab. `+` on the strip adds a layer, and Delete on the open layer removes that tab. The open layer shows its controls and its effects. An effect can be enabled, disabled, added, replaced or removed. A control can be reset to its default. Clear removes the effects on the open layer. A number is a slider, a bool is a pill, a select is a menu, and a textarea grows with its lines. The row is the width of the card. Turn on Effects in the integration options. The card has nothing to read until that device exists.
 
 ```yaml
 type: custom:moonlight-basic-card
@@ -74,6 +76,11 @@ entity: light.moonlight_light
 
 ```yaml
 type: custom:moonlight-pro-card
+entity: light.moonlight_light
+```
+
+```yaml
+type: custom:moonlight-effects-card
 entity: light.moonlight_light
 ```
 

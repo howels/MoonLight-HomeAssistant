@@ -106,6 +106,10 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self._subscription_sent: dict[str, list[str]] | None = None
         # (written value, value before the write, monotonic time). A document still carrying the old one is stale until _HOLD_SECONDS.
         self._held: dict[tuple[str, str], tuple[Any, Any, float]] = {}
+        # Effect, modifier and layer types from GET /api/types. Empty until that read succeeds.
+        self.catalog: tuple[dict[str, str], ...] = ()
+        # Control defaults keyed by factory type. A reset writes one of these values.
+        self.defaults: dict[str, dict[str, Any]] = {}
 
     async def _async_update_data(self) -> MoonLightData:
         """Read identity and the tree. A failure here is retried by Home Assistant."""
@@ -130,6 +134,9 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
                 ctype,
             )
         self.mac = dr.format_mac(system["mac"])
+        loaded = await self._async_load_catalog()
+        if loaded:
+            self.catalog = loaded
         return MoonLightData(
             system=system,
             modules=modules,
@@ -216,6 +223,97 @@ class MoonLightCoordinator(DataUpdateCoordinator[MoonLightData]):
         self.async_set_updated_data(self.data)
         if refresh:
             await self.async_refresh_tree()
+
+    async def async_add_module(self, type_name: str, parent: str) -> str:
+        """Add a module under `parent`. The device names it. The tree is read again afterwards."""
+        if self.module(parent) is None:
+            raise MoonLightCommandError("module not found")
+        name = await self.client.async_add_module(type_name, parent)
+        await self.async_refresh_tree()
+        return name
+
+    async def async_remove_module(self, name: str) -> None:
+        """Remove a module and its children, then read the tree again."""
+        if self.module(name) is None:
+            raise MoonLightCommandError("module not found")
+        await self.client.async_delete_module(name)
+        await self.async_refresh_tree()
+
+    async def async_replace_module(self, name: str, type_name: str) -> None:
+        """Swap a module for another type in the same slot, then read the tree again."""
+        if self.module(name) is None:
+            raise MoonLightCommandError("module not found")
+        await self.client.async_replace_module(name, type_name)
+        await self.async_refresh_tree()
+
+    def clear_children_document(self, name: str) -> dict[str, Any]:
+        """The state document that removes the children of `name` and keeps its own controls.
+
+        The web interface sends the same shape: `$patch: replace` on that module, wrapped in its parents.
+        """
+        module = self.module(name)
+        if module is None:
+            raise MoonLightCommandError("module not found")
+        document: dict[str, Any] = {"$patch": "replace"}
+        current: Module | None = module
+        seen: set[str] = set()
+        while current is not None and current.name not in seen:
+            seen.add(current.name)
+            document = {current.name: document}
+            if not current.parent:
+                break
+            current = self.module(current.parent)
+        return document
+
+    async def async_clear_children(self, name: str) -> None:
+        """Remove the effects on a layer, or the layers on Effects, and keep that module."""
+        document = self.clear_children_document(name)
+        await self.client.async_patch_state(document)
+        await self.async_refresh_tree()
+
+    async def _async_load_catalog(self) -> tuple[dict[str, str], ...]:
+        """Effect, modifier and layer types. A device without `/api/types` leaves the previous list."""
+        try:
+            types = await self.client.async_get_types()
+        except MoonLightError as err:
+            _LOGGER.info(
+                "MoonLight at %s:%s did not list module types (%s). Adding an effect waits until it does.",
+                self.host,
+                self.port,
+                err,
+            )
+            return ()
+        rows: list[dict[str, str]] = []
+        for item in types:
+            role = item.get("role")
+            name = item.get("name")
+            if role not in {"effect", "modifier", "layer"} or not isinstance(name, str) or not name:
+                continue
+            display = item.get("displayName")
+            rows.append(
+                {
+                    "type": name,
+                    "name": display if isinstance(display, str) and display else name,
+                    "role": role,
+                }
+            )
+        rows.sort(key=lambda row: (row["name"].casefold(), row["type"]))
+        defaults: dict[str, dict[str, Any]] = {}
+        for item in types:
+            type_name = item.get("name")
+            raw = item.get("defaults")
+            if not isinstance(type_name, str) or not type_name or not isinstance(raw, dict):
+                continue
+            # `bool` is an `int`, so the type itself is the test. A list is not a control default.
+            clean = {
+                key: value
+                for key, value in raw.items()
+                if isinstance(key, str) and type(value) in {str, int, float, bool}
+            }
+            if clean:
+                defaults[type_name] = clean
+        self.defaults = defaults
+        return tuple(rows)
 
     async def async_refresh_tree(self) -> None:
         """Read the tree again. v7.0.0 answers `{"resync": n}`. Older firmware answers `GET /api/state`."""

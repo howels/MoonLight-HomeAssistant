@@ -1,5 +1,6 @@
 // MoonLight Lovelace cards. Basic is power, brightness, palette and looks.
 // Pro is the Control desk: display strip, switches, encoder dials, faders and preset pads.
+// Effects is the Effects page: one tab per layer, and each effect on that layer as its own card.
 //
 // Both cards are given the Control light and find every other control on that device
 // by state attributes. Home Assistant's entity registry does not send unique_id.
@@ -16,6 +17,7 @@
 
 const BASIC = "moonlight-basic-card";
 const PRO = "moonlight-pro-card";
+const EFFECTS = "moonlight-effects-card";
 
 const CHANNELS = 8;
 const STRIP_CELLS = 28;
@@ -390,7 +392,65 @@ const STYLE = `
     box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .missing { opacity: 0.35; }
-  .missing .pill, .missing .knob, .missing .fader { pointer-events: none; }
+  .missing .pill, .missing .knob, .missing .fader, .missing .slider, .missing .menu, .missing .area { pointer-events: none; }
+  .tab-scroll { position: relative; margin-bottom: 12px; }
+  .tabs {
+    display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+    border-bottom: 1px solid var(--border); margin-bottom: 0;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    display: flex; align-items: center; flex: 0 0 auto;
+    background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 6px 12px; cursor: pointer; color: var(--fg); white-space: nowrap; font-size: 13px;
+  }
+  .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab.off { color: var(--fg-muted); opacity: 0.45; }
+  .tab-add { color: var(--accent); font-weight: 600; padding-inline: 10px; }
+  .tab-arrow {
+    position: absolute; top: 0; bottom: 1px; z-index: 1; padding: 0 6px;
+    border: none; background: var(--card-bg); color: var(--fg); font-size: 16px; cursor: pointer;
+  }
+  .tab-arrow[hidden] { display: none; }
+  .tab-arrow.left { left: 0; }
+  .tab-arrow.right { right: 0; }
+  .effect { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 10px; }
+  .effect.off { opacity: 0.55; }
+  .effect-hd { display: flex; align-items: center; gap: 10px; font-weight: 600; margin-bottom: 8px; }
+  .effect-hd .now { font-weight: 400; margin-left: auto; }
+  .knobs { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: flex-start; }
+  .choices, .field { width: 100%; max-width: 100%; min-width: 0; margin-top: 8px; box-sizing: border-box; }
+  .field span, .lab { font-size: 13px; color: var(--fg-muted); }
+  .field span { display: block; margin-bottom: 4px; }
+  .panel.stack { overflow: visible; width: 100%; height: auto; }
+  .line {
+    display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%;
+    margin-top: 8px; flex-wrap: wrap;
+  }
+  .lab { flex: 1 1 8em; min-width: 0; overflow-wrap: anywhere; }
+  .line .slider { flex: 1 1 120px; width: auto; min-width: 0; }
+  .line .now { flex: 0 0 auto; min-width: 3ch; text-align: right; }
+  .menu, .area {
+    width: 100%; max-width: 100%; box-sizing: border-box;
+    background: var(--bg-0); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; color: var(--fg); color-scheme: dark;
+  }
+  .area { display: block; resize: vertical; min-height: 4.5em; line-height: 1.35; }
+  .layer { margin-top: 16px; }
+  .act {
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; color: var(--fg); white-space: nowrap;
+  }
+  .act.armed { border-color: var(--accent); color: var(--accent); }
+  .add { display: flex; gap: 8px; align-items: center; width: 100%; min-width: 0; margin-top: 10px; flex-wrap: wrap; }
+  .add .search, .add .menu { flex: 1 1 140px; width: auto; min-width: 0; margin: 0; }
+  .reset {
+    flex: 0 0 auto; width: 28px; height: 28px; padding: 0; cursor: pointer;
+    background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--fg-muted);
+  }
+  .reset.on { color: var(--accent); border-color: var(--accent); }
+  .field .with-reset { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .field .with-reset span { margin: 0; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 `;
 
@@ -693,6 +753,231 @@ class MoonLightProCard extends MoonLightCard {
   }
 }
 
+function finite(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+// The Effects device is the sibling of the light's Control device. The identifier is `{mac}_Effects`.
+function effectsDeviceId(hass, controlDeviceId) {
+  const devices = hass.devices || {};
+  const control = devices[controlDeviceId];
+  if (!control || !control.via_device_id) return null;
+  const parent = control.via_device_id;
+  const ident = (control.identifiers || []).find((pair) => pair && pair[0] === "moonlight");
+  const mac = ident ? String(ident[1]).replace(/_Control$/, "") : "";
+  const want = mac ? `${mac}_Effects` : "";
+  const siblings = Object.keys(devices).filter((id) => devices[id] && devices[id].via_device_id === parent);
+  const byId = want
+    ? siblings.find((id) =>
+        (devices[id].identifiers || []).some((pair) => pair && pair[0] === "moonlight" && pair[1] === want),
+      )
+    : null;
+  if (byId) return byId;
+  return (
+    siblings.find((id) => (devices[id].name_by_user || devices[id].name) === "Effects") || null
+  );
+}
+
+function entriesOn(hass, deviceId) {
+  const entities = hass.entities || {};
+  return Object.keys(entities)
+    .filter((id) => entities[id].device_id === deviceId && hass.states[id])
+    .map((id) => ({ id, state: hass.states[id] }));
+}
+
+function labelFrom(state) {
+  const name = (state && state.attributes && state.attributes.friendly_name) || "";
+  const at = name.lastIndexOf(" · ");
+  return at >= 0 ? name.slice(at + 3) : name;
+}
+
+// One layer tab, its own controls, then each effect on that layer. `path` is the cards above the control.
+function effectLayers(entries) {
+  const layers = new Map();
+  for (const entry of entries) {
+    const control = field(entry, "control");
+    if (!control || (control[0] === "@" && control !== "@status")) continue;
+    const path = String(field(entry, "path") || "");
+    const parts = path.split(" · ").filter(Boolean);
+    if (!parts.length) continue;
+    const layerName = parts[0];
+    const effectName = parts.slice(1).join(" · ");
+    let layer = layers.get(layerName);
+    if (!layer) {
+      layer = { name: layerName, place: Infinity, controls: [], effects: new Map() };
+      layers.set(layerName, layer);
+    }
+    const place = finite(field(entry, "place"), null);
+    const item = { entry, ordinal: finite(field(entry, "ordinal"), 0) };
+    if (!effectName) {
+      if (place !== null && field(entry, "module") === layerName) layer.place = Math.min(layer.place, place);
+      layer.controls.push(item);
+    } else {
+      let effect = layer.effects.get(effectName);
+      if (!effect) {
+        effect = { name: effectName, place: place === null ? 0 : place, controls: [] };
+        layer.effects.set(effectName, effect);
+      } else if (place !== null) {
+        effect.place = Math.min(effect.place, place);
+      }
+      effect.controls.push(item);
+    }
+  }
+  const ordered = [...layers.values()].sort((a, b) => a.place - b.place || a.name.localeCompare(b.name));
+  for (const layer of ordered) {
+    layer.controls.sort((a, b) => a.ordinal - b.ordinal);
+    layer.effectList = [...layer.effects.values()].sort((a, b) => a.place - b.place || a.name.localeCompare(b.name));
+    for (const effect of layer.effectList) effect.controls.sort((a, b) => a.ordinal - b.ordinal);
+  }
+  return ordered;
+}
+
+function takeControl(controls, name) {
+  const index = controls.findIndex((item) => field(item.entry, "control") === name);
+  if (index < 0) return null;
+  return controls.splice(index, 1)[0];
+}
+
+function effectHead(title, enabled, status, moduleName) {
+  const on = enabled && enabled.entry.state && enabled.entry.state.state === "on";
+  const pill = enabled
+    ? `<button class="pill ${on ? "on" : ""}" data-switch-entity="${escapeAttr(enabled.entry.id)}" title="Enabled" aria-label="Enabled"></button>`
+    : "";
+  const line = status && status.entry.state ? `<span class="now">${escapeText(status.entry.state.state)}</span>` : "";
+  const remove = moduleName
+    ? `<button class="act" type="button" data-remove="${escapeAttr(moduleName)}" aria-label="Delete ${escapeAttr(title)}">Delete</button>`
+    : "";
+  return `<div class="effect-hd"><span class="grow">${escapeText(title)}</span>${line}${pill}${remove}</div>`;
+}
+
+function effectCatalog(entries) {
+  const found = entries.find(
+    (entry) => entry.state && entry.state.attributes && Array.isArray(entry.state.attributes.effect_types),
+  );
+  if (!found) return { types: [], layerType: "Layer", defaults: {} };
+  const defaults = found.state.attributes.defaults;
+  return {
+    types: found.state.attributes.effect_types,
+    layerType: found.state.attributes.layer_type || "Layer",
+    defaults: defaults && typeof defaults === "object" ? defaults : {},
+  };
+}
+
+function moduleTypeOf(controls) {
+  const found = controls.find((item) => field(item.entry, "module_type"));
+  return found ? String(field(found.entry, "module_type")) : "";
+}
+
+function replaceMenu(moduleName, typeName, types) {
+  const current = types.find((item) => item.type === typeName);
+  const choices = current ? types.filter((item) => item.role === current.role) : [];
+  if (!typeName || choices.length < 2) return "";
+  const options = choices
+    .map((item) => `<option value="${escapeAttr(item.type)}"${item.type === typeName ? " selected" : ""}>${escapeText(item.name)}</option>`)
+    .join("");
+  return `<label class="field"><span>Replace</span><select class="menu" data-replace="${escapeAttr(moduleName)}" data-current="${escapeAttr(typeName)}" aria-label="Replace ${escapeAttr(moduleName)}">${options}</select></label>`;
+}
+
+function addEffectRow(parent, types, clearName) {
+  const clear = clearName
+    ? `<button class="act" type="button" data-clear="${escapeAttr(clearName)}" aria-label="Clear ${escapeAttr(clearName)}">Clear</button>`
+    : "";
+  if (!types.length) {
+    return `<div class="add"><p class="lab">This MoonLight has not listed its effect types.</p>${clear}</div>`;
+  }
+  const options = types
+    .map((item) => `<option value="${escapeAttr(item.type)}">${escapeText(item.name)}</option>`)
+    .join("");
+  return `<div class="add">
+    <input class="search" data-filter="${escapeAttr(parent)}" placeholder="Search effects" aria-label="Search effects">
+    <select class="menu" data-effect-type="${escapeAttr(parent)}" aria-label="Effect type">${options}</select>
+    <button class="act" type="button" data-add-effect="${escapeAttr(parent)}">Add</button>
+    ${clear}
+  </div>`;
+}
+
+function controlDefault(item, defaults) {
+  const typeName = String(field(item.entry, "module_type") || "");
+  const control = String(field(item.entry, "control") || "");
+  const table = defaults && defaults[typeName];
+  if (!table || !Object.prototype.hasOwnProperty.call(table, control)) return undefined;
+  return table[control];
+}
+
+function resetButton(item, defaults) {
+  const raw = controlDefault(item, defaults);
+  if (raw === undefined) return "";
+  const entry = item.entry;
+  const state = entry.state;
+  const domain = entry.id.split(".", 1)[0];
+  const label = labelFrom(state);
+  const options = (state && state.attributes && state.attributes.options) || [];
+  const value = domain === "select" && typeof raw === "number" && options[raw] !== undefined ? options[raw] : raw;
+  const current = state ? state.state : "";
+  let same = String(current) === String(value);
+  if (domain === "switch") same = (current === "on") === Boolean(value);
+  else if (domain === "number") same = finite(current, NaN) === Number(value);
+  return `<button class="reset${same ? "" : " on"}" type="button" data-reset="${escapeAttr(entry.id)}" data-reset-domain="${domain}" data-reset-value="${escapeAttr(JSON.stringify(value))}" aria-label="Reset ${escapeAttr(label)}">↺</button>`;
+}
+
+function effectControl(item, defaults) {
+  const entry = item.entry;
+  const state = entry.state;
+  const domain = entry.id.split(".", 1)[0];
+  const kind = String(field(entry, "kind") || "");
+  const label = labelFrom(state);
+  const missing = !state || state.state === "unavailable" || state.state === "unknown";
+  const dim = missing ? " missing" : "";
+  const reset = resetButton(item, defaults);
+  if (domain === "number") {
+    const min = finite(state && state.attributes.min, 0);
+    const max = finite(state && state.attributes.max, 255);
+    const value = missing ? min : finite(state.state, min);
+    return `<div class="line${dim}">
+      <span class="lab">${escapeText(label)}</span>
+      <input class="slider" type="range" min="${min}" max="${max}" value="${Math.round(value)}" data-number="${escapeAttr(entry.id)}" aria-label="${escapeAttr(label)}">
+      <span class="now level">${escapeText(Math.round(value))}</span>
+      ${reset}
+    </div>`;
+  }
+  if (domain === "switch") {
+    const on = state && state.state === "on";
+    return `<div class="line${dim}"><span class="lab">${escapeText(label)}</span><button class="pill ${on ? "on" : ""}" data-switch-entity="${escapeAttr(entry.id)}" aria-label="${escapeAttr(label)}"></button>${reset}</div>`;
+  }
+  if (domain === "select") {
+    const options = (state && state.attributes.options) || [];
+    const current = state ? state.state : "";
+    const names = options.includes(current) || !current ? options : options.concat(current);
+    return `<label class="field${dim}"><span class="with-reset"><span>${escapeText(label)}</span>${reset}</span><select class="menu" data-select="${escapeAttr(entry.id)}" aria-label="${escapeAttr(label)}">${names
+      .map((option) => `<option value="${escapeAttr(option)}"${option === current ? " selected" : ""}>${escapeText(option)}</option>`)
+      .join("")}</select></label>`;
+  }
+  if (domain === "text") {
+    const value = !state || state.state === "unknown" || state.state === "unavailable" ? "" : state.state;
+    const multi = kind === "textarea" || value.includes("\n");
+    if (multi) {
+      const rows = Math.min(12, Math.max(3, value.split("\n").length));
+      return `<label class="field${dim}"><span class="with-reset"><span>${escapeText(label)}</span>${reset}</span><textarea class="area" rows="${rows}" data-text="${escapeAttr(entry.id)}" aria-label="${escapeAttr(label)}">${escapeText(value)}</textarea></label>`;
+    }
+    return `<label class="field${dim}"><span class="with-reset"><span>${escapeText(label)}</span>${reset}</span><input class="search" data-text="${escapeAttr(entry.id)}" value="${escapeAttr(value)}" aria-label="${escapeAttr(label)}"></label>`;
+  }
+  if (domain === "button") {
+    return `<button class="pad" data-press="${escapeAttr(entry.id)}">${escapeText(label)}</button>`;
+  }
+  if (domain === "sensor" && state) {
+    return `<div class="line"><span class="lab">${escapeText(label)}</span><span class="now">${escapeText(state.state)}</span></div>`;
+  }
+  return "";
+}
+
+function effectBody(controls, defaults) {
+  const own = controls.slice();
+  const enabled = takeControl(own, "enabled");
+  const status = takeControl(own, "@status");
+  return { enabled, status, html: own.map((item) => effectControl(item, defaults)).join("") };
+}
+
 function numberOf(entry) {
   if (!entry || !entry.state || entry.state.state === "unavailable" || entry.state.state === "unknown") return 0;
   const value = Number(entry.state.state);
@@ -723,8 +1008,245 @@ function escapeAttr(value) {
   return escapeText(value).replace(/"/g, "&quot;");
 }
 
+class MoonLightEffectsCard extends MoonLightCard {
+  getCardSize() {
+    return this._rows || 12;
+  }
+
+  getGridOptions() {
+    return { columns: "full", rows: "auto" };
+  }
+
+  static getConfigForm() {
+    const form = super.getConfigForm();
+    form.computeHelper = (schema) =>
+      schema.name === "entity"
+        ? "The list is MoonLight lights only, one for each device. The card reads the Effects device of that MoonLight."
+        : undefined;
+    return form;
+  }
+
+  _render() {
+    const view = this._open();
+    if (!view) return;
+    const { hass } = view;
+    const root = this.shadowRoot;
+    const effectsId = effectsDeviceId(hass, view.deviceId);
+    if (!effectsId) {
+      this._paint(
+        `<style>${STYLE}</style><div class="panel">Effects is off for this MoonLight device. Turn it on in the integration options.</div>`,
+      );
+      return;
+    }
+    const entries = entriesOn(hass, effectsId);
+    const layers = effectLayers(entries);
+    const catalog = effectCatalog(entries);
+    const effectsDevice = hass.devices[effectsId];
+    const effectsName = (effectsDevice && effectsDevice.name) || "Effects";
+    const names = layers.map((layer) => layer.name);
+    if (this._seen) {
+      const added = names.filter((name) => !this._seen.includes(name));
+      if (added.length) this._layer = added[added.length - 1];
+    }
+    this._seen = names;
+    const active = names.includes(this._layer) ? this._layer : names[0];
+    this._layer = active;
+    const layer = layers.find((item) => item.name === active);
+    const layerBody = layer ? effectBody(layer.controls, catalog.defaults) : { enabled: null, status: null, html: "" };
+    const effects = layer
+      ? layer.effectList
+          .map((effect) => {
+            const effectControls = effectBody(effect.controls, catalog.defaults);
+            const off = effectControls.enabled && effectControls.enabled.entry.state && effectControls.enabled.entry.state.state !== "on";
+            const replace = replaceMenu(effect.name, moduleTypeOf(effect.controls), catalog.types);
+            return `<section class="effect${off ? " off" : ""}">${effectHead(effect.name, effectControls.enabled, effectControls.status, effect.name)}${replace}${effectControls.html}</section>`;
+          })
+          .join("")
+      : "";
+    const shown = layer ? layer.controls.length + layer.effectList.reduce((count, effect) => count + effect.controls.length + 1, 0) + 3 : 4;
+    this._rows = Math.max(6, shown);
+    const tabs = layers
+      .map((item) => {
+        const enabled = item.controls.find((control) => field(control.entry, "control") === "enabled");
+        const off = enabled && enabled.entry.state && enabled.entry.state.state !== "on";
+        return `<button class="tab${item.name === active ? " on" : ""}${off ? " off" : ""}" type="button" role="tab" data-layer="${escapeAttr(item.name)}" aria-selected="${item.name === active ? "true" : "false"}">${escapeText(item.name)}</button>`;
+      })
+      .join("");
+    const panel = layer
+      ? `${effectHead(layer.name, layerBody.enabled, layerBody.status, layer.name)}${replaceMenu(layer.name, moduleTypeOf(layer.controls), catalog.types)}${layerBody.html}${effects}${addEffectRow(layer.name, catalog.types, layer.effectList.length ? layer.name : "")}`
+      : `<p class="lab">This MoonLight device has no effect layers.</p>`;
+    if (
+      !this._paint(`<style>${STYLE}</style>
+      <div class="panel stack">
+        <div class="tab-scroll">
+          <button class="tab-arrow left" type="button" data-tab-dir="-1" aria-label="Earlier layers" hidden>‹</button>
+          <div class="tabs" role="tablist">
+            ${tabs}
+            <button class="tab tab-add" type="button" data-add-layer="${escapeAttr(catalog.layerType)}" aria-label="Add layer">+</button>
+          </div>
+          <button class="tab-arrow right" type="button" data-tab-dir="1" aria-label="Later layers" hidden>›</button>
+        </div>
+        ${panel}
+      </div>`)
+    )
+      return;
+    const strip = root.querySelector(".tabs");
+    const earlier = root.querySelector("[data-tab-dir='-1']");
+    const later = root.querySelector("[data-tab-dir='1']");
+    const placeArrows = () => {
+      earlier.hidden = strip.scrollLeft <= 1;
+      later.hidden = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 1;
+    };
+    strip.addEventListener("scroll", placeArrows, { passive: true });
+    earlier.addEventListener("click", () => strip.scrollBy({ left: -strip.clientWidth * 0.8, behavior: "smooth" }));
+    later.addEventListener("click", () => strip.scrollBy({ left: strip.clientWidth * 0.8, behavior: "smooth" }));
+    if (typeof ResizeObserver === "function") new ResizeObserver(placeArrows).observe(strip);
+    placeArrows();
+    root.querySelectorAll("[data-layer]").forEach((button) => {
+      button.addEventListener("click", () => {
+        this._layer = button.dataset.layer;
+        this._html = "";
+        this._render();
+      });
+    });
+    root.querySelectorAll("[data-add-layer]").forEach((button) => {
+      button.addEventListener("click", () => {
+        hass.callService("moonlight", "add_module", {
+          device_id: effectsId,
+          type: button.dataset.addLayer,
+          parent: effectsName,
+        });
+      });
+    });
+    root.querySelectorAll("[data-add-effect]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const menu = button.parentElement.querySelector("select");
+        if (!menu || !menu.value) return;
+        hass.callService("moonlight", "add_module", {
+          device_id: effectsId,
+          type: menu.value,
+          parent: button.dataset.addEffect,
+        });
+      });
+    });
+    root.querySelectorAll("[data-filter]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const menu = input.parentElement.querySelector("select");
+        const query = input.value.trim().toLowerCase();
+        let first = "";
+        [...menu.options].forEach((option) => {
+          const show = !query || option.text.toLowerCase().includes(query);
+          option.hidden = !show;
+          if (show && !first) first = option.value;
+        });
+        if (menu.selectedOptions[0] && menu.selectedOptions[0].hidden && first) menu.value = first;
+      });
+    });
+    root.querySelectorAll("select[data-replace]").forEach((menu) => {
+      menu.addEventListener("change", () => {
+        if (!menu.value || menu.value === menu.dataset.current) return;
+        hass.callService("moonlight", "replace_module", {
+          device_id: effectsId,
+          module: menu.dataset.replace,
+          type: menu.value,
+        });
+      });
+    });
+    root.querySelectorAll("[data-clear]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.dataset.armed !== "1") {
+          button.dataset.armed = "1";
+          button.textContent = "Confirm";
+          button.classList.add("armed");
+          window.setTimeout(() => {
+            if (!button.isConnected) return;
+            button.dataset.armed = "";
+            button.textContent = "Clear";
+            button.classList.remove("armed");
+          }, 3000);
+          return;
+        }
+        hass.callService("moonlight", "clear_children", { device_id: effectsId, module: button.dataset.clear });
+      });
+    });
+    root.querySelectorAll("[data-reset]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.reset;
+        const value = JSON.parse(button.dataset.resetValue);
+        const domain = button.dataset.resetDomain;
+        if (domain === "number") hass.callService("number", "set_value", { entity_id: id, value: Number(value) });
+        else if (domain === "switch") hass.callService("switch", value ? "turn_on" : "turn_off", { entity_id: id });
+        else if (domain === "select") hass.callService("select", "select_option", { entity_id: id, option: String(value) });
+        else if (domain === "text") hass.callService("text", "set_value", { entity_id: id, value: String(value) });
+      });
+    });
+    root.querySelectorAll("[data-remove]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.dataset.armed !== "1") {
+          button.dataset.armed = "1";
+          button.textContent = "Confirm";
+          button.classList.add("armed");
+          window.setTimeout(() => {
+            if (!button.isConnected) return;
+            button.dataset.armed = "";
+            button.textContent = "Delete";
+            button.classList.remove("armed");
+          }, 3000);
+          return;
+        }
+        hass.callService("moonlight", "remove_module", {
+          device_id: effectsId,
+          module: button.dataset.remove,
+        });
+      });
+    });
+    root.querySelectorAll("[data-switch-entity]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.switchEntity;
+        const state = hass.states[id];
+        if (!state || state.state === "unavailable") return;
+        hass.callService("switch", state.state === "on" ? "turn_off" : "turn_on", { entity_id: id });
+      });
+    });
+    root.querySelectorAll("[data-number]").forEach((input) => {
+      input.addEventListener("pointerdown", () => this._hold(true));
+      input.addEventListener("pointerup", () => this._hold(false));
+      input.addEventListener("pointercancel", () => this._hold(false));
+      input.addEventListener("input", () => {
+        const level = input.parentElement.querySelector(".level");
+        if (level) level.textContent = input.value;
+      });
+      input.addEventListener("change", () => {
+        hass.callService("number", "set_value", { entity_id: input.dataset.number, value: Number(input.value) });
+      });
+    });
+    root.querySelectorAll("select[data-select]").forEach((menu) => {
+      menu.addEventListener("change", () => {
+        hass.callService("select", "select_option", { entity_id: menu.dataset.select, option: menu.value });
+      });
+    });
+    root.querySelectorAll("[data-text]").forEach((input) => {
+      input.addEventListener("focus", () => this._hold(true));
+      input.addEventListener("input", () => {
+        if (input.tagName !== "TEXTAREA") return;
+        input.rows = Math.min(12, Math.max(3, input.value.split("\n").length));
+      });
+      input.addEventListener("blur", () => {
+        this._hold(false);
+        hass.callService("text", "set_value", { entity_id: input.dataset.text, value: input.value });
+      });
+    });
+    root.querySelectorAll("[data-press]").forEach((button) => {
+      button.addEventListener("click", () => {
+        hass.callService("button", "press", { entity_id: button.dataset.press });
+      });
+    });
+  }
+}
+
 if (!customElements.get(BASIC)) customElements.define(BASIC, MoonLightBasicCard);
 if (!customElements.get(PRO)) customElements.define(PRO, MoonLightProCard);
+if (!customElements.get(EFFECTS)) customElements.define(EFFECTS, MoonLightEffectsCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push(
@@ -739,5 +1261,11 @@ window.customCards.push(
     name: "MoonLight Pro",
     preview: true,
     description: "The Control desk: display, switches, encoders, faders and preset pads.",
+  },
+  {
+    type: EFFECTS,
+    name: "MoonLight Effects",
+    preview: true,
+    description: "The Effects page: one tab per layer. The open layer holds its effects.",
   },
 );
